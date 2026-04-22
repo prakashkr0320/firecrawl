@@ -1,5 +1,7 @@
 import express, { Request, Response } from 'express';
-import { chromium, Browser, BrowserContext, Route, Request as PlaywrightRequest, Page } from 'playwright';
+import { Browser, BrowserContext, BrowserContextOptions, Route, Request as PlaywrightRequest, Page } from 'playwright';
+import { chromium } from 'playwright-extra';
+import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import dotenv from 'dotenv';
 import UserAgent from 'user-agents';
 import { getError } from './helpers/get_error';
@@ -31,7 +33,53 @@ const MAX_ACTIVE_LOCAL_SESSIONS = Math.max(
 const PROXY_SERVER = process.env.PROXY_SERVER || null;
 const PROXY_USERNAME = process.env.PROXY_USERNAME || null;
 const PROXY_PASSWORD = process.env.PROXY_PASSWORD || null;
+const normalizeStealthLocale = (value: string | undefined): string => {
+  const normalized = (value ?? 'en-US').trim().replace(/_/g, '-');
+  if (!normalized) return 'en-US';
+  if (!/^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/.test(normalized)) {
+    console.warn(`Invalid STEALTH_LOCALE "${value}", defaulting to "en-US"`);
+    return 'en-US';
+  }
+  return normalized;
+};
+
+const getLocaleLanguage = (locale: string): string => {
+  const [language] = locale.split('-');
+  return (language || 'en').toLowerCase();
+};
+
+const buildAcceptLanguageHeader = (locale: string): string => {
+  const language = getLocaleLanguage(locale);
+  if (locale.toLowerCase() === language) return locale;
+  return `${locale},${language};q=0.9`;
+};
+
+const buildNavigatorLanguages = (locale: string): string[] => {
+  const language = getLocaleLanguage(locale);
+  return locale.toLowerCase() === language ? [locale] : [locale, language];
+};
+
+const parseBooleanEnv = (value: string | undefined, defaultValue: boolean): boolean => {
+  if (!value) return defaultValue;
+  const normalized = value.trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+  return defaultValue;
+};
+
+const STEALTH_LOCALE = normalizeStealthLocale(process.env.STEALTH_LOCALE);
+const STEALTH_ACCEPT_LANGUAGE = buildAcceptLanguageHeader(STEALTH_LOCALE);
+const STEALTH_NAVIGATOR_LANGUAGES = buildNavigatorLanguages(STEALTH_LOCALE);
+const STEALTH_TIMEZONE_ID = process.env.STEALTH_TIMEZONE_ID || null;
+const ENABLE_STEALTH_FALLBACKS = parseBooleanEnv(process.env.ENABLE_STEALTH_FALLBACKS, true);
 const dnsLookupCache = new Map<string, { addresses: string[]; expiresAt: number }>();
+let stealthPluginRegistered = false;
+
+const ensureStealthPlugin = () => {
+  if (stealthPluginRegistered) return;
+  chromium.use(StealthPlugin());
+  stealthPluginRegistered = true;
+};
 
 class InsecureConnectionError extends Error {
   constructor(public readonly blockedUrl: string, reason: string) {
@@ -217,34 +265,81 @@ interface LocalSessionCreateModel {
 
 let browser: Browser;
 
-const initializeBrowser = async () => {
-  browser = await chromium.launch({
-    headless: true,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-accelerated-2d-canvas',
-      '--no-first-run',
-      '--no-zygote',
-      '--disable-gpu'
-    ]
-  });
+const buildChromeLaunchArgs = (userDataDir?: string): string[] => {
+  const args = [
+    '--headless=new',
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-dev-shm-usage',
+    '--disable-accelerated-2d-canvas',
+    '--no-first-run',
+    '--no-default-browser-check',
+    '--no-zygote',
+    '--disable-gpu',
+    '--disable-blink-features=AutomationControlled',
+    '--disable-infobars',
+    '--window-size=1280,800',
+    `--lang=${STEALTH_LOCALE}`,
+    '--remote-debugging-port=0',
+  ];
+
+  if (userDataDir) {
+    args.push(`--user-data-dir=${userDataDir}`);
+  }
+
+  return args;
 };
 
-const createContext = async (skipTlsVerification: boolean = false, userAgentOverride?: string): Promise<{ context: BrowserContext; securityState: ContextSecurityState }> => {
-  const userAgent = userAgentOverride || new UserAgent().toString();
-  const viewport = { width: 1280, height: 800 };
-  const securityState: ContextSecurityState = {
-    blockedNavigationRequestUrl: null,
-  };
+const applyStealthFallbacks = async (context: BrowserContext) => {
+  if (!ENABLE_STEALTH_FALLBACKS) return;
+  await context.addInitScript(({ languages }) => {
+    const safeDefine = (target: object, property: string, descriptor: PropertyDescriptor) => {
+      try {
+        Object.defineProperty(target, property, descriptor);
+      } catch {
+        // Ignore properties that cannot be redefined in this runtime.
+      }
+    };
 
-  const contextOptions: any = {
+    if ('webdriver' in navigator) {
+      safeDefine(navigator, 'webdriver', {
+        get: () => undefined,
+      });
+    }
+
+    if (!('chrome' in window)) {
+      safeDefine(window, 'chrome', {
+        configurable: true,
+        value: { runtime: {} },
+      });
+    }
+
+    if (!navigator.languages || navigator.languages.length === 0) {
+      safeDefine(navigator, 'languages', {
+        get: () => languages,
+      });
+    }
+  }, { languages: STEALTH_NAVIGATOR_LANGUAGES });
+};
+
+const buildContextOptions = (
+  skipTlsVerification: boolean,
+  userAgent: string,
+): BrowserContextOptions => {
+  const contextOptions: BrowserContextOptions = {
     userAgent,
-    viewport,
+    viewport: { width: 1280, height: 800 },
     ignoreHTTPSErrors: skipTlsVerification,
     serviceWorkers: 'block',
+    locale: STEALTH_LOCALE,
+    extraHTTPHeaders: {
+      'Accept-Language': STEALTH_ACCEPT_LANGUAGE,
+    },
   };
+
+  if (STEALTH_TIMEZONE_ID) {
+    contextOptions.timezoneId = STEALTH_TIMEZONE_ID;
+  }
 
   if (PROXY_SERVER && PROXY_USERNAME && PROXY_PASSWORD) {
     contextOptions.proxy = {
@@ -258,8 +353,56 @@ const createContext = async (skipTlsVerification: boolean = false, userAgentOver
     };
   }
 
-  const newContext = await browser.newContext(contextOptions);
+  return contextOptions;
+};
 
+const createConfiguredContext = async (options: BrowserContextOptions): Promise<BrowserContext> => {
+  const context = await browser.newContext(options);
+  await applyStealthFallbacks(context);
+  return context;
+};
+
+const applyLocalSessionStealthContextConfig = async (context: BrowserContext) => {
+  await applyStealthFallbacks(context);
+  await context.setExtraHTTPHeaders({
+    'Accept-Language': STEALTH_ACCEPT_LANGUAGE,
+  }).catch(() => {});
+};
+
+const createCdpContextOptions = (): BrowserContextOptions => {
+  const options: BrowserContextOptions = {
+    locale: STEALTH_LOCALE,
+    extraHTTPHeaders: {
+      'Accept-Language': STEALTH_ACCEPT_LANGUAGE,
+    },
+  };
+
+  if (STEALTH_TIMEZONE_ID) {
+    options.timezoneId = STEALTH_TIMEZONE_ID;
+  }
+
+  return options;
+};
+
+const createOrConfigureLocalSessionContext = async (connectedBrowser: Browser): Promise<BrowserContext> => {
+  const existingContext = connectedBrowser.contexts()[0];
+  if (existingContext) {
+    await applyLocalSessionStealthContextConfig(existingContext);
+    return existingContext;
+  }
+
+  const context = await connectedBrowser.newContext(createCdpContextOptions());
+  await applyLocalSessionStealthContextConfig(context);
+  return context;
+};
+
+const createContext = async (skipTlsVerification: boolean = false, userAgentOverride?: string): Promise<{ context: BrowserContext; securityState: ContextSecurityState }> => {
+  const userAgent = userAgentOverride || new UserAgent().toString();
+  const securityState: ContextSecurityState = {
+    blockedNavigationRequestUrl: null,
+  };
+
+  const newContext = await createConfiguredContext(buildContextOptions(skipTlsVerification, userAgent));
   if (BLOCK_MEDIA) {
     await newContext.route('**/*.{png,jpg,jpeg,gif,svg,mp3,mp4,avi,flac,ogg,wav,webm}', async (route: Route, request: PlaywrightRequest) => {
       await route.abort();
@@ -291,8 +434,18 @@ const createContext = async (skipTlsVerification: boolean = false, userAgentOver
     }
     return route.continue();
   });
-  
+
   return { context: newContext, securityState };
+};
+
+const initializeBrowser = async () => {
+  ensureStealthPlugin();
+
+  browser = await chromium.launch({
+    headless: true,
+    ignoreDefaultArgs: ['--enable-automation'],
+    args: buildChromeLaunchArgs(),
+  });
 };
 
 const parseSessionTiming = (value: unknown, fallbackMs: number, minSeconds: number, maxSeconds: number): number => {
@@ -454,26 +607,16 @@ const createLocalSession = async (
   let chromeProcess: ChildProcess | null = null;
   let connectedBrowser: Browser | null = null;
   try {
+    ensureStealthPlugin();
     userDataDir = await mkdtemp(path.join(os.tmpdir(), 'firecrawl-local-browser-'));
-    const chromeArgs = [
-      '--headless=new',
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-gpu',
-      '--no-first-run',
-      '--no-default-browser-check',
-      '--remote-debugging-port=0',
-      `--user-data-dir=${userDataDir}`,
-      'about:blank',
-    ];
+    const chromeArgs = [...buildChromeLaunchArgs(userDataDir), 'about:blank'];
 
     chromeProcess = spawn(chromium.executablePath(), chromeArgs, {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     const cdpUrl = await waitForDevToolsEndpoint(chromeProcess, LOCAL_SESSION_CREATE_TIMEOUT_MS);
     connectedBrowser = await chromium.connectOverCDP(cdpUrl);
-    const context = connectedBrowser.contexts()[0] ?? await connectedBrowser.newContext();
+    const context = await createOrConfigureLocalSessionContext(connectedBrowser);
     const page = context.pages()[0] ?? await context.newPage();
     await page.setContent(
       '<!doctype html><html><body><main id="firecrawl-local-session-root">Local browser session ready</main></body></html>',

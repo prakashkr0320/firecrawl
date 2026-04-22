@@ -8,21 +8,38 @@ This is a simple web scraping service built with Express and Playwright.
 - Blocks requests to known ad-serving domains.
 - Blocks media files to reduce bandwidth usage.
 - Uses random user-agent strings to avoid detection.
+- Uses `playwright-extra` with `puppeteer-extra-plugin-stealth` to reduce automation fingerprints.
 - Strategy to ensure the page is fully rendered.
 - Local browser sessions with CDP URLs for external Playwright clients.
 
+## Stealth Configuration
+
+The service runs in stealth mode by default.
+
+- `STEALTH_LOCALE` (default: `en-US`) sets Chromium language, Playwright locale, and
+  `Accept-Language`. Values are normalized (`_` -> `-`) and invalid values fall back to `en-US`.
+- `STEALTH_TIMEZONE_ID` (optional) sets Playwright context `timezoneId` (for example,
+  `America/New_York`).
+- `ENABLE_STEALTH_FALLBACKS` (default: `true`) controls lightweight init-script fallbacks for
+  `navigator.webdriver`, `window.chrome`, and `navigator.languages`.
+  Accepted truthy values: `1`, `true`, `yes`, `on`. Accepted falsy values: `0`, `false`, `no`, `off`.
+
 ## Install
+
 ```bash
 npm install
 npx playwright install
 ```
 
 ## RUN
+
 ```bash
 npm run build
 npm start
 ```
+
 OR
+
 ```bash
 npm run dev
 ```
