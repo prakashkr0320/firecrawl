@@ -88,11 +88,18 @@ class AsyncFirecrawlClient:
     # Scrape
     async def scrape(
         self,
-        url: str,
+        url: Optional[str] = None,
+        *,
+        session_id: Optional[str] = None,
         **kwargs,
     ):
         options = ScrapeOptions(**{k: v for k, v in kwargs.items() if v is not None}) if kwargs else None
-        return await async_scrape.scrape(self.async_http_client, url, options)
+        return await async_scrape.scrape(
+            self.async_http_client,
+            url,
+            options,
+            session_id=session_id,
+        )
 
     async def interact(
         self,
@@ -564,6 +571,21 @@ class AsyncFirecrawlClient:
             profile=profile,
         )
 
+    async def local_browser(
+        self,
+        *,
+        ttl: Optional[int] = None,
+        activity_ttl: Optional[int] = None,
+        playwright: Optional[Dict[str, Any]] = None,
+    ):
+        """Create a local browser session and return a CDP URL."""
+        return await async_browser.local_browser(
+            self.async_http_client,
+            ttl=ttl,
+            activity_ttl=activity_ttl,
+            playwright=playwright,
+        )
+
     async def browser_execute(
         self,
         session_id: str,
@@ -601,6 +623,12 @@ class AsyncFirecrawlClient:
             BrowserDeleteResponse
         """
         return await async_browser.delete_browser(
+            self.async_http_client, session_id
+        )
+
+    async def delete_local_browser(self, session_id: str):
+        """Delete a local browser session."""
+        return await async_browser.delete_local_browser(
             self.async_http_client, session_id
         )
 

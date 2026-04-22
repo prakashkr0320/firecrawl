@@ -113,8 +113,9 @@ class FirecrawlClient:
     
     def scrape(
         self,
-        url: str,
+        url: Optional[str] = None,
         *,
+        session_id: Optional[str] = None,
         formats: Optional[List['FormatOption']] = None,
         headers: Optional[Dict[str, str]] = None,
         include_tags: Optional[List[str]] = None,
@@ -141,6 +142,7 @@ class FirecrawlClient:
         Scrape a single URL and return the document.
         Args:
             url: URL to scrape
+            session_id: Existing browser session id to scrape current state without navigation
             formats: List of formats to scrape
             headers: Dictionary of headers to use
             include_tags: List of tags to include
@@ -188,8 +190,8 @@ class FirecrawlClient:
                 profile=profile,
                 integration=integration,
             ).items() if v is not None}
-        ) if any(v is not None for v in [formats, headers, include_tags, exclude_tags, only_main_content, timeout, wait_for, mobile, parsers, actions, location, skip_tls_verification, remove_base64_images, fast_mode, use_mock, block_ads, proxy, max_age, store_in_cache, profile, integration]) else None
-        return scrape_module.scrape(self.http_client, url, options)
+        ) if any(v is not None for v in [session_id, formats, headers, include_tags, exclude_tags, only_main_content, timeout, wait_for, mobile, parsers, actions, location, skip_tls_verification, remove_base64_images, fast_mode, use_mock, block_ads, proxy, max_age, store_in_cache, profile, integration]) else None
+        return scrape_module.scrape(self.http_client, url, options, session_id=session_id)
 
     def interact(
         self,
@@ -1124,6 +1126,21 @@ class FirecrawlClient:
             profile=profile,
         )
 
+    def local_browser(
+        self,
+        *,
+        ttl: Optional[int] = None,
+        activity_ttl: Optional[int] = None,
+        playwright: Optional[Dict[str, Any]] = None,
+    ):
+        """Create a local browser session and return a CDP URL."""
+        return browser_module.local_browser(
+            self.http_client,
+            ttl=ttl,
+            activity_ttl=activity_ttl,
+            playwright=playwright,
+        )
+
     def browser_execute(
         self,
         session_id: str,
@@ -1161,6 +1178,10 @@ class FirecrawlClient:
             BrowserDeleteResponse
         """
         return browser_module.delete_browser(self.http_client, session_id)
+
+    def delete_local_browser(self, session_id: str):
+        """Delete a local browser session."""
+        return browser_module.delete_local_browser(self.http_client, session_id)
 
     def list_browsers(
         self,

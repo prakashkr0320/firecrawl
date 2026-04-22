@@ -98,8 +98,10 @@ class V2Proxy:
             self.get_queue_status = client_instance.get_queue_status
 
             self.browser = client_instance.browser
+            self.local_browser = client_instance.local_browser
             self.browser_execute = client_instance.browser_execute
             self.delete_browser = client_instance.delete_browser
+            self.delete_local_browser = client_instance.delete_local_browser
             self.list_browsers = client_instance.list_browsers
 
             self.watcher = client_instance.watcher
@@ -178,8 +180,10 @@ class AsyncV2Proxy:
             self.get_queue_status = client_instance.get_queue_status
 
             self.browser = client_instance.browser
+            self.local_browser = client_instance.local_browser
             self.browser_execute = client_instance.browser_execute
             self.delete_browser = client_instance.delete_browser
+            self.delete_local_browser = client_instance.delete_local_browser
             self.list_browsers = client_instance.list_browsers
 
             self.watcher = client_instance.watcher
@@ -275,8 +279,10 @@ class Firecrawl:
         self.get_queue_status = self._v2_client.get_queue_status
 
         self.browser = self._v2_client.browser
+        self.local_browser = self._v2_client.local_browser
         self.browser_execute = self._v2_client.browser_execute
         self.delete_browser = self._v2_client.delete_browser
+        self.delete_local_browser = self._v2_client.delete_local_browser
         self.list_browsers = self._v2_client.list_browsers
         
         self.watcher = self._v2_client.watcher
@@ -368,8 +374,10 @@ class AsyncFirecrawl:
         self.get_queue_status = self._v2_client.get_queue_status
 
         self.browser = self._v2_client.browser
+        self.local_browser = self._v2_client.local_browser
         self.browser_execute = self._v2_client.browser_execute
         self.delete_browser = self._v2_client.delete_browser
+        self.delete_local_browser = self._v2_client.delete_local_browser
         self.list_browsers = self._v2_client.list_browsers
 
         self.watcher = self._v2_client.watcher

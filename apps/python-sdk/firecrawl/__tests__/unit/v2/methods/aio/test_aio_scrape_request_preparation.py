@@ -48,6 +48,12 @@ class TestAsyncScrapeRequestPreparation:
         assert payload["url"] == "https://example.com"
 
     @pytest.mark.asyncio
+    async def test_session_only_request_preparation(self):
+        payload = await _prepare_scrape_request(session_id="session-123")
+        assert payload["sessionId"] == "session-123"
+        assert "url" not in payload
+
+    @pytest.mark.asyncio
     async def test_options_conversion(self):
         opts = ScrapeOptions(
             formats=["markdown", {"type": "screenshot", "full_page": True, "quality": 80}],

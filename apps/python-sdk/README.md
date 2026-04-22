@@ -178,6 +178,36 @@ print(run.stdout)
 firecrawl.stop_interaction(scrape_job_id)
 ```
 
+### Self-hosted external browser session (v2)
+
+Use a local browser session when running Firecrawl self-hosted, then scrape the current browser state without re-navigation:
+
+```python
+from firecrawl import Firecrawl
+from playwright.async_api import async_playwright
+import asyncio
+
+client = Firecrawl(api_url="http://localhost:3002")
+
+async def main():
+    session = client.local_browser(
+        playwright={"viewport": {"width": 1280, "height": 720}}
+    )
+
+    async with async_playwright() as p:
+        browser = await p.chromium.connect_over_cdp(session.cdp_url)
+        ctx = browser.contexts[0]
+        page = ctx.pages[0] if ctx.pages else await ctx.new_page()
+        await page.goto("https://example.com")
+        await page.click("text=More information")
+
+    doc = client.scrape(session_id=session.id, formats=["markdown"])
+    print(doc.markdown)
+    client.delete_local_browser(session.id)
+
+asyncio.run(main())
+```
+
 {/* ### Extracting Structured Data from Websites
 
   To extract structured data from websites, use the `extract` method. It takes the URLs to extract data from, a prompt, and a schema as arguments. The schema is a Pydantic model that defines the structure of the extracted data.

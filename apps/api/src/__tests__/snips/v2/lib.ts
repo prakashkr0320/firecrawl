@@ -224,6 +224,31 @@ export async function scrapeStopInteractiveBrowserRaw(
     .send();
 }
 
+export async function localBrowserCreateRaw(
+  body: {
+    ttl?: number;
+    activityTtl?: number;
+    playwright?: Record<string, unknown>;
+  },
+  identity: Identity,
+) {
+  return await request(TEST_API_URL)
+    .post("/v2/local-browser")
+    .set("Authorization", `Bearer ${identity.apiKey}`)
+    .set("Content-Type", "application/json")
+    .send(body);
+}
+
+export async function localBrowserDeleteRaw(
+  sessionId: string,
+  identity: Identity,
+) {
+  return await request(TEST_API_URL)
+    .delete("/v2/local-browser/" + encodeURIComponent(sessionId))
+    .set("Authorization", `Bearer ${identity.apiKey}`)
+    .send();
+}
+
 // =========================================
 // Crawl API
 // =========================================

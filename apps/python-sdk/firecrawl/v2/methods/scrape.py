@@ -13,21 +13,30 @@ from ..utils.normalize import normalize_document_input
 from ..utils import HttpClient, handle_response_error, prepare_scrape_options, validate_scrape_options
 
 
-def _prepare_scrape_request(url: str, options: Optional[ScrapeOptions] = None) -> Dict[str, Any]:
+def _prepare_scrape_request(
+    url: Optional[str] = None,
+    options: Optional[ScrapeOptions] = None,
+    session_id: Optional[str] = None,
+) -> Dict[str, Any]:
     """
     Prepare a scrape request payload for v2 API.
     
     Args:
         url: URL to scrape
         options: ScrapeOptions (snake_case) to convert and include
+        session_id: Existing browser session id to scrape without navigation
         
     Returns:
         Request payload dictionary with camelCase fields
     """
-    if not url or not url.strip():
-        raise ValueError("URL cannot be empty")
+    if (not url or not url.strip()) and not session_id:
+        raise ValueError("Either URL or session_id must be provided")
 
-    request_data: Dict[str, Any] = {"url": url.strip()}
+    request_data: Dict[str, Any] = {}
+    if url and url.strip():
+        request_data["url"] = url.strip()
+    if session_id:
+        request_data["sessionId"] = session_id
 
     if options is not None:
         validated = validate_scrape_options(options)
@@ -38,7 +47,12 @@ def _prepare_scrape_request(url: str, options: Optional[ScrapeOptions] = None) -
 
     return request_data
 
-def scrape(client: HttpClient, url: str, options: Optional[ScrapeOptions] = None) -> Document:
+def scrape(
+    client: HttpClient,
+    url: Optional[str] = None,
+    options: Optional[ScrapeOptions] = None,
+    session_id: Optional[str] = None,
+) -> Document:
     """
     Scrape a single URL and return the document.
     
@@ -49,11 +63,12 @@ def scrape(client: HttpClient, url: str, options: Optional[ScrapeOptions] = None
         client: HTTP client instance
         url: URL to scrape
         options: Scraping options (snake_case)
+        session_id: Existing browser session id to scrape without navigation
         
     Returns:
         Document
     """
-    payload = _prepare_scrape_request(url, options)
+    payload = _prepare_scrape_request(url, options, session_id=session_id)
 
     response = client.post("/v2/scrape", payload)
 

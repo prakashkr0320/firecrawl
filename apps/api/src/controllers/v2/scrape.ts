@@ -24,6 +24,7 @@ import { getErrorContactMessage } from "../../lib/deployment";
 import { captureExceptionWithZdrCheck } from "../../services/sentry";
 import type { BillingMetadata } from "../../services/billing/types";
 import { getScrapeZDR } from "../../lib/zdr-helpers";
+import { LocalBrowserServiceError } from "../../lib/local-browser-service-client";
 
 const AGENT_INTEROP_CONCURRENCY_BOOST = 3;
 
@@ -84,7 +85,8 @@ export async function scrapeController(
       }
 
       const zeroDataRetention =
-        getScrapeZDR(req.acuc?.flags) === "forced" || (req.body.zeroDataRetention ?? false);
+        getScrapeZDR(req.acuc?.flags) === "forced" ||
+        (req.body.zeroDataRetention ?? false);
       const billing: BillingMetadata = req.body.__agentInterop
         ? { endpoint: "agent" as const, jobId }
         : { endpoint: "scrape" as const, jobId };
@@ -121,6 +123,7 @@ export async function scrapeController(
       });
 
       const middlewareTime = controllerStartTime - middlewareStartTime;
+      const scrapeTarget = req.body.url ?? `session://${req.body.sessionId}`;
 
       logger.debug("Scrape " + jobId + " starting", {
         version: "v2",
@@ -138,7 +141,7 @@ export async function scrapeController(
           team_id: req.auth.team_id,
           origin: req.body.origin ?? "api",
           integration: req.body.integration,
-          target_hint: req.body.url,
+          target_hint: scrapeTarget,
           zeroDataRetention: zeroDataRetention || false,
           api_key_id: req.acuc?.api_key_id ?? null,
         }).catch(err =>
@@ -226,7 +229,7 @@ export async function scrapeController(
                   createdAt: new Date(),
                   priority: jobPriority,
                   data: {
-                    url: req.body.url,
+                    url: scrapeTarget,
                     mode: "single_urls",
                     team_id: req.auth.team_id,
                     scrapeOptions: {
@@ -244,6 +247,7 @@ export async function scrapeController(
                         ? true
                         : false,
                       unnormalizedSourceURL: preNormalizedBody.url,
+                      localBrowserSessionId: req.body.sessionId,
                       bypassBilling: isDirectToBullMQ || !shouldBill,
                       zeroDataRetention,
                       teamFlags: req.acuc?.flags ?? null,
@@ -275,6 +279,14 @@ export async function scrapeController(
           },
         );
       } catch (e) {
+        if (e instanceof LocalBrowserServiceError) {
+          return res.status(e.status).json({
+            success: false,
+            code: e.status === 404 ? "BAD_REQUEST" : undefined,
+            error: e.message,
+          });
+        }
+
         const timeoutErr =
           e instanceof TransportableError && e.code === "SCRAPE_TIMEOUT";
 

@@ -117,13 +117,19 @@ class TestScrapeRequestPreparation:
 
     def test_empty_url_validation(self):
         """Test validation with empty URL."""
-        with pytest.raises(ValueError, match="URL cannot be empty"):
+        with pytest.raises(ValueError, match="Either URL or session_id must be provided"):
             _prepare_scrape_request("")
 
     def test_whitespace_url_validation(self):
         """Test validation with whitespace-only URL."""
-        with pytest.raises(ValueError, match="URL cannot be empty"):
+        with pytest.raises(ValueError, match="Either URL or session_id must be provided"):
             _prepare_scrape_request("   ")
+
+    def test_session_only_request_preparation(self):
+        """Allow scraping by existing browser session without URL."""
+        data = _prepare_scrape_request(session_id="session-123")
+        assert data["sessionId"] == "session-123"
+        assert "url" not in data
 
     def test_all_params_including_integration(self):
         opts = ScrapeOptions(

@@ -90,6 +90,27 @@ async def browser(
     return BrowserCreateResponse(**payload)
 
 
+async def local_browser(
+    client: AsyncHttpClient,
+    *,
+    ttl: Optional[int] = None,
+    activity_ttl: Optional[int] = None,
+    playwright: Optional[Dict[str, Any]] = None,
+) -> BrowserCreateResponse:
+    """Create a local browser session for external CDP clients."""
+    body: Dict[str, Any] = {}
+    if ttl is not None:
+        body["ttl"] = ttl
+    if activity_ttl is not None:
+        body["activityTtl"] = activity_ttl
+    if playwright is not None:
+        body["playwright"] = playwright
+
+    resp = await client.post("/v2/local-browser", body)
+    payload = _normalize_browser_create_response(resp.json())
+    return BrowserCreateResponse(**payload)
+
+
 def _normalize_browser_execute_response(payload: Dict[str, Any]) -> Dict[str, Any]:
     out = dict(payload)
     if "exitCode" in out and "exit_code" not in out:
@@ -152,6 +173,16 @@ async def delete_browser(
         BrowserDeleteResponse
     """
     resp = await client.delete(f"/v2/browser/{session_id}")
+    payload = _normalize_browser_delete_response(resp.json())
+    return BrowserDeleteResponse(**payload)
+
+
+async def delete_local_browser(
+    client: AsyncHttpClient,
+    session_id: str,
+) -> BrowserDeleteResponse:
+    """Delete a local browser session."""
+    resp = await client.delete(f"/v2/local-browser/{session_id}")
     payload = _normalize_browser_delete_response(resp.json())
     return BrowserDeleteResponse(**payload)
 

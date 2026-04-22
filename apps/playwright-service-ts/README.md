@@ -9,6 +9,7 @@ This is a simple web scraping service built with Express and Playwright.
 - Blocks media files to reduce bandwidth usage.
 - Uses random user-agent strings to avoid detection.
 - Strategy to ensure the page is fully rendered.
+- Local browser sessions with CDP URLs for external Playwright clients.
 
 ## Install
 ```bash
@@ -45,3 +46,31 @@ curl -X POST http://localhost:3000/scrape \
 ## USING WITH FIRECRAWL
 
 Add `PLAYWRIGHT_MICROSERVICE_URL=http://localhost:3003/scrape` to `/apps/api/.env` to configure the API to use this Playwright microservice for scraping operations.
+
+## LOCAL BROWSER SESSIONS
+
+Create a local browser session:
+
+```bash
+curl -X POST http://localhost:3003/sessions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ttl": 600,
+    "activityTtl": 300,
+    "playwright": {
+      "viewport": { "width": 1280, "height": 720 }
+    }
+  }'
+```
+
+Get the current DOM snapshot from a live session (no navigation):
+
+```bash
+curl http://localhost:3003/sessions/<session-id>/snapshot
+```
+
+Delete a session:
+
+```bash
+curl -X DELETE http://localhost:3003/sessions/<session-id>
+```

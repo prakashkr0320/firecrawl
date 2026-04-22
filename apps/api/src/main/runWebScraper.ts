@@ -4,6 +4,10 @@ import { configDotenv } from "dotenv";
 import { scrapeURL, ScrapeUrlResponse } from "../scraper/scrapeURL";
 import type { NuQJob } from "../services/worker/nuq";
 import { CostTracking } from "../lib/cost-tracking";
+import {
+  localBrowserServiceRequest,
+  LocalBrowserSnapshotResponse,
+} from "../lib/local-browser-service-client";
 configDotenv();
 
 export async function startWebScraperPipeline({
@@ -58,9 +62,36 @@ async function runWebScraper({
     jobId: bull_job_id,
     zeroDataRetention: internalOptions?.zeroDataRetention,
   });
-  const tries = is_crawl ? 3 : 1;
-
   logger.info("runWebScraper called");
+
+  if (internalOptions?.localBrowserSessionId) {
+    const snapshot =
+      await localBrowserServiceRequest<LocalBrowserSnapshotResponse>(
+        "GET",
+        `/sessions/${encodeURIComponent(internalOptions.localBrowserSessionId)}/snapshot`,
+      );
+
+    return await scrapeURL(
+      bull_job_id,
+      snapshot.url || url,
+      scrapeOptions,
+      {
+        priority,
+        ...internalOptions,
+        urlInvisibleInCurrentCrawl,
+        teamId: internalOptions?.teamId ?? team_id,
+        uploadedFile: {
+          buffer: Buffer.from(snapshot.html, "utf8"),
+          filename: "session-snapshot.html",
+          contentType: "text/html; charset=utf-8",
+          kind: "html",
+        },
+      },
+      costTracking,
+    );
+  }
+
+  const tries = is_crawl ? 3 : 1;
 
   let response: ScrapeUrlResponse | undefined = undefined;
   let error: any = undefined;

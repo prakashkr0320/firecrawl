@@ -5,6 +5,11 @@ import UserAgent from 'user-agents';
 import { getError } from './helpers/get_error';
 import { lookup } from 'dns/promises';
 import IPAddr from 'ipaddr.js';
+import { spawn, ChildProcess } from 'child_process';
+import { mkdtemp, rm } from 'fs/promises';
+import os from 'os';
+import path from 'path';
+import crypto from 'crypto';
 
 dotenv.config();
 
@@ -17,6 +22,11 @@ const BLOCK_MEDIA = (process.env.BLOCK_MEDIA || 'False').toUpperCase() === 'TRUE
 const MAX_CONCURRENT_PAGES = Math.max(1, Number.parseInt(process.env.MAX_CONCURRENT_PAGES ?? '10', 10) || 10);
 const ALLOW_LOCAL_WEBHOOKS = (process.env.ALLOW_LOCAL_WEBHOOKS || 'False').toUpperCase() === 'TRUE';
 const DNS_CACHE_TTL_MS = 30_000;
+const LOCAL_SESSION_CREATE_TIMEOUT_MS = 15_000;
+const MAX_ACTIVE_LOCAL_SESSIONS = Math.max(
+  1,
+  Number.parseInt(process.env.MAX_ACTIVE_LOCAL_SESSIONS ?? '25', 10) || 25,
+);
 
 const PROXY_SERVER = process.env.PROXY_SERVER || null;
 const PROXY_USERNAME = process.env.PROXY_USERNAME || null;
@@ -115,6 +125,25 @@ const assertSafeTargetUrl = async (urlString: string): Promise<void> => {
 type ContextSecurityState = {
   blockedNavigationRequestUrl: string | null;
 };
+
+type LocalBrowserSession = {
+  sessionId: string;
+  cdpUrl: string;
+  browser: Browser;
+  context: BrowserContext;
+  page: Page;
+  process: ChildProcess;
+  userDataDir: string;
+  createdAt: number;
+  expiresAt: number;
+  ttlMs: number;
+  activityTtlMs: number;
+  lastActivity: number;
+  ttlTimer: NodeJS.Timeout;
+  activityTimer: NodeJS.Timeout;
+};
+
+const localSessions = new Map<string, LocalBrowserSession>();
 class Semaphore {
   private permits: number;
   private queue: (() => void)[] = [];
@@ -178,6 +207,12 @@ interface UrlModel {
   headers?: { [key: string]: string };
   check_selector?: string;
   skip_tls_verification?: boolean;
+}
+
+interface LocalSessionCreateModel {
+  ttl?: number;
+  activityTtl?: number;
+  playwright?: Record<string, unknown>;
 }
 
 let browser: Browser;
@@ -260,7 +295,240 @@ const createContext = async (skipTlsVerification: boolean = false, userAgentOver
   return { context: newContext, securityState };
 };
 
+const parseSessionTiming = (value: unknown, fallbackMs: number, minSeconds: number, maxSeconds: number): number => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return fallbackMs;
+  }
+  const bounded = Math.min(Math.max(value, minSeconds), maxSeconds);
+  return Math.floor(bounded * 1000);
+};
+
+const waitForDevToolsEndpoint = async (
+  chromeProcess: ChildProcess,
+  timeoutMs: number,
+): Promise<string> => {
+  return await new Promise((resolve, reject) => {
+    const regex = /DevTools listening on (ws:\/\/[^\s]+)/;
+    let combinedOutput = '';
+    let settled = false;
+
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error('Timed out waiting for DevTools endpoint'));
+    }, timeoutMs);
+
+    const handleChunk = (chunk: Buffer) => {
+      if (settled) return;
+      combinedOutput += chunk.toString('utf8');
+      const match = combinedOutput.match(regex);
+      if (match?.[1]) {
+        settled = true;
+        clearTimeout(timeout);
+        resolve(match[1]);
+      }
+    };
+
+    const handleExit = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      reject(new Error('Chrome process exited before exposing DevTools endpoint'));
+    };
+
+    chromeProcess.stdout?.on('data', handleChunk);
+    chromeProcess.stderr?.on('data', handleChunk);
+    chromeProcess.once('exit', handleExit);
+    chromeProcess.once('error', handleExit);
+  });
+};
+
+const getPreferredSessionPage = async (session: LocalBrowserSession): Promise<Page> => {
+  const pages = session.context.pages();
+  if (pages.length === 0) {
+    session.page = await session.context.newPage();
+    return session.page;
+  }
+
+  const preferred = pages.find(candidate => {
+    const url = candidate.url();
+    return url && url !== 'about:blank';
+  }) || pages[0];
+  session.page = preferred;
+  return preferred;
+};
+
+const applyPlaywrightParams = async (
+  session: LocalBrowserSession,
+  playwright: Record<string, unknown> | undefined,
+) => {
+  if (!playwright || typeof playwright !== 'object') return;
+
+  const page = await getPreferredSessionPage(session);
+  const context = session.context;
+
+  try {
+    const viewport = playwright.viewport;
+    if (
+      viewport &&
+      typeof viewport === 'object' &&
+      typeof (viewport as any).width === 'number' &&
+      typeof (viewport as any).height === 'number'
+    ) {
+      await page.setViewportSize({
+        width: (viewport as any).width,
+        height: (viewport as any).height,
+      });
+    }
+  } catch (error) {
+    console.warn('Failed to apply viewport parameter', { error });
+  }
+
+  try {
+    const extraHeaders = playwright.extraHTTPHeaders ?? playwright.headers;
+    if (extraHeaders && typeof extraHeaders === 'object') {
+      await page.setExtraHTTPHeaders(extraHeaders as Record<string, string>);
+    }
+  } catch (error) {
+    console.warn('Failed to apply header parameters', { error });
+  }
+
+  try {
+    const geolocation = playwright.geolocation;
+    if (
+      geolocation &&
+      typeof geolocation === 'object' &&
+      typeof (geolocation as any).latitude === 'number' &&
+      typeof (geolocation as any).longitude === 'number'
+    ) {
+      await context.grantPermissions(['geolocation']).catch(() => {});
+      await context.setGeolocation({
+        latitude: (geolocation as any).latitude,
+        longitude: (geolocation as any).longitude,
+      });
+    }
+  } catch (error) {
+    console.warn('Failed to apply geolocation parameter', { error });
+  }
+};
+
+const scheduleActivityTimer = (session: LocalBrowserSession) => {
+  clearTimeout(session.activityTimer);
+  session.activityTimer = setTimeout(() => {
+    destroyLocalSession(session.sessionId).catch(err => {
+      console.error('Failed to destroy local session after inactivity timeout', err);
+    });
+  }, session.activityTtlMs);
+};
+
+const touchLocalSession = (session: LocalBrowserSession) => {
+  session.lastActivity = Date.now();
+  scheduleActivityTimer(session);
+};
+
+const destroyLocalSession = async (sessionId: string): Promise<number | null> => {
+  const session = localSessions.get(sessionId);
+  if (!session) return null;
+
+  localSessions.delete(sessionId);
+  clearTimeout(session.ttlTimer);
+  clearTimeout(session.activityTimer);
+  const durationMs = Date.now() - session.createdAt;
+
+  await session.browser.close().catch(() => {});
+  if (!session.process.killed) {
+    session.process.kill('SIGTERM');
+  }
+
+  await rm(session.userDataDir, { recursive: true, force: true }).catch(() => {});
+  return durationMs;
+};
+
+const createLocalSession = async (
+  ttlSeconds: number,
+  activityTtlSeconds: number,
+  playwright: Record<string, unknown> | undefined,
+): Promise<LocalBrowserSession> => {
+  const sessionId = crypto.randomUUID();
+  let userDataDir: string | null = null;
+  let chromeProcess: ChildProcess | null = null;
+  let connectedBrowser: Browser | null = null;
+  try {
+    userDataDir = await mkdtemp(path.join(os.tmpdir(), 'firecrawl-local-browser-'));
+    const chromeArgs = [
+      '--headless=new',
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--no-first-run',
+      '--no-default-browser-check',
+      '--remote-debugging-port=0',
+      `--user-data-dir=${userDataDir}`,
+      'about:blank',
+    ];
+
+    chromeProcess = spawn(chromium.executablePath(), chromeArgs, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const cdpUrl = await waitForDevToolsEndpoint(chromeProcess, LOCAL_SESSION_CREATE_TIMEOUT_MS);
+    connectedBrowser = await chromium.connectOverCDP(cdpUrl);
+    const context = connectedBrowser.contexts()[0] ?? await connectedBrowser.newContext();
+    const page = context.pages()[0] ?? await context.newPage();
+    await page.setContent(
+      '<!doctype html><html><body><main id="firecrawl-local-session-root">Local browser session ready</main></body></html>',
+      { waitUntil: 'domcontentloaded' },
+    );
+
+    const now = Date.now();
+    const ttlMs = parseSessionTiming(ttlSeconds, 600_000, 30, 3600);
+    const activityTtlMs = parseSessionTiming(activityTtlSeconds, 300_000, 10, 3600);
+    const ttlTimer = setTimeout(() => {
+      destroyLocalSession(sessionId).catch(err => {
+        console.error('Failed to destroy local session after ttl timeout', err);
+      });
+    }, ttlMs);
+    const activityTimer = setTimeout(() => {
+      destroyLocalSession(sessionId).catch(err => {
+        console.error('Failed to destroy local session after inactivity timeout', err);
+      });
+    }, activityTtlMs);
+
+    const session: LocalBrowserSession = {
+      sessionId,
+      cdpUrl,
+      browser: connectedBrowser,
+      context,
+      page,
+      process: chromeProcess,
+      userDataDir,
+      createdAt: now,
+      expiresAt: now + ttlMs,
+      ttlMs,
+      activityTtlMs,
+      lastActivity: now,
+      ttlTimer,
+      activityTimer,
+    };
+
+    localSessions.set(sessionId, session);
+    await applyPlaywrightParams(session, playwright);
+    return session;
+  } catch (error) {
+    await connectedBrowser?.close().catch(() => {});
+    if (chromeProcess && !chromeProcess.killed) {
+      chromeProcess.kill('SIGTERM');
+    }
+    if (userDataDir) {
+      await rm(userDataDir, { recursive: true, force: true }).catch(() => {});
+    }
+    throw error;
+  }
+};
+
 const shutdownBrowser = async () => {
+  const sessionIds = [...localSessions.keys()];
+  await Promise.all(sessionIds.map(id => destroyLocalSession(id).catch(() => {})));
   if (browser) {
     await browser.close();
   }
@@ -327,6 +595,65 @@ const scrapePage = async (
     contentType: ct,
   };
 };
+
+app.post('/sessions', async (req: Request, res: Response) => {
+  const { ttl = 600, activityTtl = 300, playwright }: LocalSessionCreateModel = req.body || {};
+  if (localSessions.size >= MAX_ACTIVE_LOCAL_SESSIONS) {
+    return res.status(429).json({
+      error: `Too many active local browser sessions. Limit is ${MAX_ACTIVE_LOCAL_SESSIONS}.`,
+    });
+  }
+  try {
+    const session = await createLocalSession(ttl, activityTtl, playwright);
+    return res.status(200).json({
+      sessionId: session.sessionId,
+      cdpUrl: session.cdpUrl,
+      expiresAt: new Date(session.expiresAt).toISOString(),
+    });
+  } catch (error) {
+    console.error('Failed to create local browser session', error);
+    return res.status(500).json({
+      error: error instanceof Error ? error.message : 'Failed to create local browser session',
+    });
+  }
+});
+
+app.get('/sessions/:sessionId/snapshot', async (req: Request, res: Response) => {
+  const sessionId = String(req.params.sessionId);
+  const session = localSessions.get(sessionId);
+  if (!session) {
+    return res.status(404).json({ error: 'Local browser session not found.' });
+  }
+
+  try {
+    const page = await getPreferredSessionPage(session);
+    touchLocalSession(session);
+    const html = await page.content();
+    const url = page.url();
+    return res.status(200).json({
+      sessionId: session.sessionId,
+      url,
+      html,
+    });
+  } catch (error) {
+    console.error('Failed to snapshot local browser session', error);
+    return res.status(500).json({
+      error: error instanceof Error ? error.message : 'Failed to snapshot local browser session',
+    });
+  }
+});
+
+app.delete('/sessions/:sessionId', async (req: Request, res: Response) => {
+  const durationMs = await destroyLocalSession(String(req.params.sessionId));
+  if (durationMs === null) {
+    return res.status(404).json({ error: 'Local browser session not found.' });
+  }
+
+  return res.status(200).json({
+    ok: true,
+    sessionDurationMs: durationMs,
+  });
+});
 
 app.get('/health', async (req: Request, res: Response) => {
   try {

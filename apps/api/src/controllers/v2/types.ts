@@ -816,20 +816,26 @@ export const agentRequestSchema = z.strictObject({
 export type AgentRequest = z.infer<typeof agentRequestSchema>;
 // export type AgentRequestInput = z.input<typeof agentRequestSchema>;
 
-const scrapeRequestSchemaBase = baseScrapeOptions.extend({
-  url: URL,
-  origin: z.string().optional().prefault("api"),
-  integration: integrationSchema.optional().transform(val => val || null),
-  zeroDataRetention: z.boolean().optional(),
-  __agentInterop: z
-    .object({
-      auth: z.string(),
-      requestId: z.string(),
-      shouldBill: z.boolean(),
-      boostConcurrency: z.boolean().optional(),
-    })
-    .optional(),
-});
+const scrapeRequestSchemaBase = baseScrapeOptions
+  .extend({
+    url: URL.optional(),
+    sessionId: z.string().uuid().optional(),
+    origin: z.string().optional().prefault("api"),
+    integration: integrationSchema.optional().transform(val => val || null),
+    zeroDataRetention: z.boolean().optional(),
+    __agentInterop: z
+      .object({
+        auth: z.string(),
+        requestId: z.string(),
+        shouldBill: z.boolean(),
+        boostConcurrency: z.boolean().optional(),
+      })
+      .optional(),
+  })
+  .refine(obj => Boolean(obj.url || obj.sessionId), {
+    error: "Either 'url' or 'sessionId' must be provided.",
+    path: ["url"],
+  });
 
 export const scrapeRequestSchema = strictWithMessage(scrapeRequestSchemaBase)
   .refine(waitForRefine, waitForRefineOpts)
@@ -845,7 +851,8 @@ export type ScrapeRequestInput = Omit<
 > & {
   formats?: z.input<typeof baseScrapeOptions>["formats"];
 } & {
-  url: z.input<typeof URL>;
+  url?: z.input<typeof URL>;
+  sessionId?: string;
   origin?: string;
   integration?: z.input<typeof integrationSchema> | null;
   zeroDataRetention?: boolean;
