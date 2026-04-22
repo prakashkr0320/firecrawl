@@ -97,7 +97,9 @@ describe("Local browser sessions", () => {
     });
   }, 10000 + scrapeTimeout);
 
-  itIf(!!config.PLAYWRIGHT_MICROSERVICE_URL)(
+  itIf(
+    !!config.PLAYWRIGHT_MICROSERVICE_URL && !!process.env.BROWSERBASE_API_KEY,
+  )(
     "scrapes current local browser session state without navigation",
     async () => {
       const created = await localBrowserCreateRaw(
@@ -137,6 +139,27 @@ describe("Local browser sessions", () => {
       } finally {
         await localBrowserDeleteRaw(sessionId, identity);
       }
+    },
+    scrapeTimeout,
+  );
+
+  itIf(
+    !!config.PLAYWRIGHT_MICROSERVICE_URL && !process.env.BROWSERBASE_API_KEY,
+  )(
+    "fails to create local browser session when Browserbase is not configured",
+    async () => {
+      const created = await localBrowserCreateRaw(
+        {
+          ttl: 120,
+          activityTtl: 60,
+        },
+        identity,
+      );
+
+      expect(created.statusCode).toBe(500);
+      expect(created.body.success).toBe(false);
+      expect(typeof created.body.error).toBe("string");
+      expect(created.body.error).toContain("BROWSERBASE_API_KEY");
     },
     scrapeTimeout,
   );

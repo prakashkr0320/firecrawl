@@ -4,7 +4,16 @@ metadata:
   name: playwright-service-config
 data:
   PORT: "3000"
+  BROWSERBASE_PROJECT_ID: ""
   ALLOW_LOCAL_WEBHOOKS: "false"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: playwright-service-secret
+type: Opaque
+stringData:
+  BROWSERBASE_API_KEY: ""
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -31,6 +40,8 @@ spec:
           envFrom:
             - configMapRef:
                 name: playwright-service-config
+            - secretRef:
+                name: playwright-service-secret
           livenessProbe:
             httpGet:
               path: /health

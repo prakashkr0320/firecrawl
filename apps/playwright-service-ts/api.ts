@@ -1,16 +1,13 @@
 import express, { Request, Response } from 'express';
 import { Browser, BrowserContext, BrowserContextOptions, Route, Request as PlaywrightRequest, Page } from 'playwright';
 import { chromium } from 'playwright-extra';
+import { Browserbase } from '@browserbasehq/sdk';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import dotenv from 'dotenv';
 import UserAgent from 'user-agents';
 import { getError } from './helpers/get_error';
 import { lookup } from 'dns/promises';
 import IPAddr from 'ipaddr.js';
-import { spawn, ChildProcess } from 'child_process';
-import { mkdtemp, rm } from 'fs/promises';
-import os from 'os';
-import path from 'path';
 import crypto from 'crypto';
 
 dotenv.config();
@@ -24,7 +21,7 @@ const BLOCK_MEDIA = (process.env.BLOCK_MEDIA || 'False').toUpperCase() === 'TRUE
 const MAX_CONCURRENT_PAGES = Math.max(1, Number.parseInt(process.env.MAX_CONCURRENT_PAGES ?? '10', 10) || 10);
 const ALLOW_LOCAL_WEBHOOKS = (process.env.ALLOW_LOCAL_WEBHOOKS || 'False').toUpperCase() === 'TRUE';
 const DNS_CACHE_TTL_MS = 30_000;
-const LOCAL_SESSION_CREATE_TIMEOUT_MS = 15_000;
+const BROWSERBASE_PROJECT_ID = process.env.BROWSERBASE_PROJECT_ID?.trim() || undefined;
 const MAX_ACTIVE_LOCAL_SESSIONS = Math.max(
   1,
   Number.parseInt(process.env.MAX_ACTIVE_LOCAL_SESSIONS ?? '25', 10) || 25,
@@ -176,12 +173,11 @@ type ContextSecurityState = {
 
 type LocalBrowserSession = {
   sessionId: string;
+  browserbaseSessionId: string;
   cdpUrl: string;
   browser: Browser;
   context: BrowserContext;
   page: Page;
-  process: ChildProcess;
-  userDataDir: string;
   createdAt: number;
   expiresAt: number;
   ttlMs: number;
@@ -192,6 +188,40 @@ type LocalBrowserSession = {
 };
 
 const localSessions = new Map<string, LocalBrowserSession>();
+let browserbaseClient: Browserbase | null = null;
+
+const getBrowserbaseClient = (): Browserbase => {
+  if (browserbaseClient) return browserbaseClient;
+  const apiKey = process.env.BROWSERBASE_API_KEY?.trim();
+  if (!apiKey) {
+    throw new Error('BROWSERBASE_API_KEY is required for local browser sessions.');
+  }
+  browserbaseClient = new Browserbase({ apiKey });
+  return browserbaseClient;
+};
+
+const requestBrowserbaseSessionRelease = async (browserbaseSessionId: string) => {
+  let client: Browserbase;
+  try {
+    client = getBrowserbaseClient();
+  } catch (err) {
+    console.warn('Failed to initialize Browserbase client for session release', {
+      browserbaseSessionId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return;
+  }
+
+  await client.sessions.update(browserbaseSessionId, {
+    status: 'REQUEST_RELEASE',
+    projectId: BROWSERBASE_PROJECT_ID,
+  }).catch(err => {
+    console.warn('Failed to request Browserbase session release', {
+      browserbaseSessionId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
+};
 class Semaphore {
   private permits: number;
   private queue: (() => void)[] = [];
@@ -265,7 +295,7 @@ interface LocalSessionCreateModel {
 
 let browser: Browser;
 
-const buildChromeLaunchArgs = (userDataDir?: string): string[] => {
+const buildChromeLaunchArgs = (): string[] => {
   const args = [
     '--headless=new',
     '--no-sandbox',
@@ -280,12 +310,8 @@ const buildChromeLaunchArgs = (userDataDir?: string): string[] => {
     '--disable-infobars',
     '--window-size=1280,800',
     `--lang=${STEALTH_LOCALE}`,
-    '--remote-debugging-port=0',
+    '--remote-debugging-port=0'
   ];
-
-  if (userDataDir) {
-    args.push(`--user-data-dir=${userDataDir}`);
-  }
 
   return args;
 };
@@ -456,46 +482,6 @@ const parseSessionTiming = (value: unknown, fallbackMs: number, minSeconds: numb
   return Math.floor(bounded * 1000);
 };
 
-const waitForDevToolsEndpoint = async (
-  chromeProcess: ChildProcess,
-  timeoutMs: number,
-): Promise<string> => {
-  return await new Promise((resolve, reject) => {
-    const regex = /DevTools listening on (ws:\/\/[^\s]+)/;
-    let combinedOutput = '';
-    let settled = false;
-
-    const timeout = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      reject(new Error('Timed out waiting for DevTools endpoint'));
-    }, timeoutMs);
-
-    const handleChunk = (chunk: Buffer) => {
-      if (settled) return;
-      combinedOutput += chunk.toString('utf8');
-      const match = combinedOutput.match(regex);
-      if (match?.[1]) {
-        settled = true;
-        clearTimeout(timeout);
-        resolve(match[1]);
-      }
-    };
-
-    const handleExit = () => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      reject(new Error('Chrome process exited before exposing DevTools endpoint'));
-    };
-
-    chromeProcess.stdout?.on('data', handleChunk);
-    chromeProcess.stderr?.on('data', handleChunk);
-    chromeProcess.once('exit', handleExit);
-    chromeProcess.once('error', handleExit);
-  });
-};
-
 const getPreferredSessionPage = async (session: LocalBrowserSession): Promise<Page> => {
   const pages = session.context.pages();
   if (pages.length === 0) {
@@ -589,11 +575,7 @@ const destroyLocalSession = async (sessionId: string): Promise<number | null> =>
   const durationMs = Date.now() - session.createdAt;
 
   await session.browser.close().catch(() => {});
-  if (!session.process.killed) {
-    session.process.kill('SIGTERM');
-  }
-
-  await rm(session.userDataDir, { recursive: true, force: true }).catch(() => {});
+  await requestBrowserbaseSessionRelease(session.browserbaseSessionId);
   return durationMs;
 };
 
@@ -603,18 +585,18 @@ const createLocalSession = async (
   playwright: Record<string, unknown> | undefined,
 ): Promise<LocalBrowserSession> => {
   const sessionId = crypto.randomUUID();
-  let userDataDir: string | null = null;
-  let chromeProcess: ChildProcess | null = null;
   let connectedBrowser: Browser | null = null;
+  let browserbaseSessionId: string | null = null;
   try {
     ensureStealthPlugin();
-    userDataDir = await mkdtemp(path.join(os.tmpdir(), 'firecrawl-local-browser-'));
-    const chromeArgs = [...buildChromeLaunchArgs(userDataDir), 'about:blank'];
-
-    chromeProcess = spawn(chromium.executablePath(), chromeArgs, {
-      stdio: ['ignore', 'pipe', 'pipe'],
+    const ttlMs = parseSessionTiming(ttlSeconds, 600_000, 30, 3600);
+    const activityTtlMs = parseSessionTiming(activityTtlSeconds, 300_000, 10, 3600);
+    const browserbaseSession = await getBrowserbaseClient().sessions.create({
+      timeout: Math.floor(ttlMs / 1000),
+      projectId: BROWSERBASE_PROJECT_ID,
     });
-    const cdpUrl = await waitForDevToolsEndpoint(chromeProcess, LOCAL_SESSION_CREATE_TIMEOUT_MS);
+    browserbaseSessionId = browserbaseSession.id;
+    const cdpUrl = browserbaseSession.connectUrl;
     connectedBrowser = await chromium.connectOverCDP(cdpUrl);
     const context = await createOrConfigureLocalSessionContext(connectedBrowser);
     const page = context.pages()[0] ?? await context.newPage();
@@ -624,8 +606,8 @@ const createLocalSession = async (
     );
 
     const now = Date.now();
-    const ttlMs = parseSessionTiming(ttlSeconds, 600_000, 30, 3600);
-    const activityTtlMs = parseSessionTiming(activityTtlSeconds, 300_000, 10, 3600);
+    const parsedExpiresAt = Date.parse(browserbaseSession.expiresAt);
+    const expiresAt = Number.isFinite(parsedExpiresAt) ? parsedExpiresAt : now + ttlMs;
     const ttlTimer = setTimeout(() => {
       destroyLocalSession(sessionId).catch(err => {
         console.error('Failed to destroy local session after ttl timeout', err);
@@ -639,14 +621,13 @@ const createLocalSession = async (
 
     const session: LocalBrowserSession = {
       sessionId,
+      browserbaseSessionId,
       cdpUrl,
       browser: connectedBrowser,
       context,
       page,
-      process: chromeProcess,
-      userDataDir,
       createdAt: now,
-      expiresAt: now + ttlMs,
+      expiresAt,
       ttlMs,
       activityTtlMs,
       lastActivity: now,
@@ -659,11 +640,8 @@ const createLocalSession = async (
     return session;
   } catch (error) {
     await connectedBrowser?.close().catch(() => {});
-    if (chromeProcess && !chromeProcess.killed) {
-      chromeProcess.kill('SIGTERM');
-    }
-    if (userDataDir) {
-      await rm(userDataDir, { recursive: true, force: true }).catch(() => {});
+    if (browserbaseSessionId) {
+      await requestBrowserbaseSessionRelease(browserbaseSessionId);
     }
     throw error;
   }

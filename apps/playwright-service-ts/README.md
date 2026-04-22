@@ -64,6 +64,13 @@ curl -X POST http://localhost:3000/scrape \
 
 Add `PLAYWRIGHT_MICROSERVICE_URL=http://localhost:3003/scrape` to `/apps/api/.env` to configure the API to use this Playwright microservice for scraping operations.
 
+For local browser sessions (`POST /v2/local-browser`), this service now requires Browserbase credentials:
+
+- `BROWSERBASE_API_KEY` (required)
+- `BROWSERBASE_PROJECT_ID` (optional)
+
+In production deployments, inject `BROWSERBASE_API_KEY` from a secret manager or Kubernetes Secret. Do not place Browserbase API keys in ConfigMaps or committed values files.
+
 ## LOCAL BROWSER SESSIONS
 
 Create a local browser session:
