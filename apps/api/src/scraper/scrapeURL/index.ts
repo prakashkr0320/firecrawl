@@ -7,7 +7,6 @@ import { captureExceptionWithZdrCheck } from "../../services/sentry";
 import {
   type Document,
   getPDFMaxPages,
-  scrapeOptions,
   type ScrapeOptions,
   type TeamFlags,
 } from "../../controllers/v2/types";
@@ -486,13 +485,13 @@ const MAX_HTML_SIZE_FOR_MARKDOWN_CHECK = 300 * 1024; // 300KB
 
 function getMarkdownCheckScrapeOptions(meta: Meta): ScrapeOptions {
   if (meta.internalOptions.localBrowserSnapshotSelectorScoped) {
-    return scrapeOptions.parse({
+    return {
       ...meta.options,
       onlyMainContent: false,
-    });
+    };
   }
 
-  return scrapeOptions.parse(meta.options);
+  return meta.options;
 }
 
 async function scrapeURLLoopIter(
@@ -555,14 +554,10 @@ async function scrapeURLLoopIter(
         checkMarkdown.trim().length === 0
       ) {
         checkMarkdown = await parseMarkdown(
-          await htmlTransform(
-            engineResult.html,
-            meta.url,
-            scrapeOptions.parse({
-              ...checkScrapeOptions,
-              onlyMainContent: false,
-            }),
-          ),
+          await htmlTransform(engineResult.html, meta.url, {
+            ...checkScrapeOptions,
+            onlyMainContent: false,
+          }),
           { logger: meta.logger, requestId },
         );
       }
