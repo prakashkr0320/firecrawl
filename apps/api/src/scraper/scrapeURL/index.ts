@@ -439,6 +439,7 @@ export type InternalOptions = {
   teamId: string;
   crawlId?: string;
   localBrowserSessionId?: string;
+  localBrowserSelector?: string;
 
   priority?: number; // Passed along to fire-engine
   forceEngine?: Engine | Engine[];

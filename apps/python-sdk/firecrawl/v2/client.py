@@ -116,6 +116,7 @@ class FirecrawlClient:
         url: Optional[str] = None,
         *,
         session_id: Optional[str] = None,
+        selector: Optional[str] = None,
         formats: Optional[List['FormatOption']] = None,
         headers: Optional[Dict[str, str]] = None,
         include_tags: Optional[List[str]] = None,
@@ -143,6 +144,7 @@ class FirecrawlClient:
         Args:
             url: URL to scrape
             session_id: Existing browser session id to scrape current state without navigation
+            selector: Optional CSS selector to limit local browser session scraping (requires session_id)
             formats: List of formats to scrape
             headers: Dictionary of headers to use
             include_tags: List of tags to include
@@ -191,7 +193,13 @@ class FirecrawlClient:
                 integration=integration,
             ).items() if v is not None}
         ) if any(v is not None for v in [session_id, formats, headers, include_tags, exclude_tags, only_main_content, timeout, wait_for, mobile, parsers, actions, location, skip_tls_verification, remove_base64_images, fast_mode, use_mock, block_ads, proxy, max_age, store_in_cache, profile, integration]) else None
-        return scrape_module.scrape(self.http_client, url, options, session_id=session_id)
+        return scrape_module.scrape(
+            self.http_client,
+            url,
+            options,
+            session_id=session_id,
+            selector=selector,
+        )
 
     def interact(
         self,

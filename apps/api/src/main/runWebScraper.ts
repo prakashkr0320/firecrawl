@@ -65,16 +65,35 @@ async function runWebScraper({
   logger.info("runWebScraper called");
 
   if (internalOptions?.localBrowserSessionId) {
+    const snapshotPath = new URL(
+      `/sessions/${encodeURIComponent(internalOptions.localBrowserSessionId)}/snapshot`,
+      "http://local-browser",
+    );
+    if (internalOptions.localBrowserSelector) {
+      snapshotPath.searchParams.set(
+        "selector",
+        internalOptions.localBrowserSelector,
+      );
+    }
+
     const snapshot =
       await localBrowserServiceRequest<LocalBrowserSnapshotResponse>(
         "GET",
-        `/sessions/${encodeURIComponent(internalOptions.localBrowserSessionId)}/snapshot`,
+        `${snapshotPath.pathname}${snapshotPath.search}`,
       );
+
+    // Local browser session scrapes should always reflect the current in-session DOM,
+    // not previously indexed/cached content for the same URL.
+    const sessionSnapshotScrapeOptions = {
+      ...scrapeOptions,
+      maxAge: 0,
+      storeInCache: false,
+    };
 
     return await scrapeURL(
       bull_job_id,
       snapshot.url || url,
-      scrapeOptions,
+      sessionSnapshotScrapeOptions,
       {
         priority,
         ...internalOptions,

@@ -15,6 +15,7 @@ async def _prepare_scrape_request(
     url: Optional[str] = None,
     options: Optional[ScrapeOptions] = None,
     session_id: Optional[str] = None,
+    selector: Optional[str] = None,
 ) -> Dict[str, Any]:
     if (not url or not url.strip()) and not session_id:
         raise ValueError("Either URL or session_id must be provided")
@@ -23,6 +24,8 @@ async def _prepare_scrape_request(
         payload["url"] = url.strip()
     if session_id:
         payload["sessionId"] = session_id
+    if selector and selector.strip():
+        payload["selector"] = selector.strip()
     if options is not None:
         validated = validate_scrape_options(options)
         if validated is not None:
@@ -37,8 +40,14 @@ async def scrape(
     url: Optional[str] = None,
     options: Optional[ScrapeOptions] = None,
     session_id: Optional[str] = None,
+    selector: Optional[str] = None,
 ) -> Document:
-    payload = await _prepare_scrape_request(url, options, session_id=session_id)
+    payload = await _prepare_scrape_request(
+        url,
+        options,
+        session_id=session_id,
+        selector=selector,
+    )
     response = await client.post("/v2/scrape", payload)
     if response.status_code >= 400:
         handle_response_error(response, "scrape")

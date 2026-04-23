@@ -81,7 +81,7 @@ async function mutateSessionViaCdp(cdpUrl: string) {
     });
     await sessionSend("Runtime.evaluate", {
       expression:
-        "document.body.innerHTML = '<main id=\"details-panel\" class=\"loaded\">Playwright-state-marker</main>'; history.replaceState({}, '', 'https://example.com/spa#state');",
+        'document.body.innerHTML = \'<main id="details-panel" class="loaded">Playwright-state-marker</main><section class="target-block">Target-marker-one</section><section class="target-block">Target-marker-two</section><aside>Outside-selector-content</aside>\'; history.replaceState({}, \'\', \'https://example.com/spa\');',
     });
   });
 }
@@ -121,6 +121,16 @@ describe("Local browser sessions", () => {
       const sessionId = created.body.id as string;
       const cdpUrl = created.body.cdpUrl as string;
       try {
+        const warmed = await scrapeRaw(
+          {
+            url: "https://example.com/spa",
+            formats: ["markdown"],
+          },
+          identity,
+        );
+        expect(warmed.statusCode).toBe(200);
+        expect(warmed.body.success).toBe(true);
+
         await mutateSessionViaCdp(cdpUrl);
 
         const scrapeResponse = await scrapeRaw(
@@ -136,6 +146,38 @@ describe("Local browser sessions", () => {
         expect(scrapeResponse.body.data?.markdown).toContain(
           "Playwright-state-marker",
         );
+
+        const selectorResponse = await scrapeRaw(
+          {
+            sessionId,
+            selector: ".target-block",
+            formats: ["markdown"],
+          },
+          identity,
+        );
+        expect(selectorResponse.statusCode).toBe(200);
+        expect(selectorResponse.body.success).toBe(true);
+        expect(selectorResponse.body.data?.markdown).toContain(
+          "Target-marker-one",
+        );
+        expect(selectorResponse.body.data?.markdown).toContain(
+          "Target-marker-two",
+        );
+        expect(selectorResponse.body.data?.markdown).not.toContain(
+          "Outside-selector-content",
+        );
+
+        const emptySelectorResponse = await scrapeRaw(
+          {
+            sessionId,
+            selector: ".does-not-exist",
+            formats: ["html"],
+          },
+          identity,
+        );
+        expect(emptySelectorResponse.statusCode).toBe(200);
+        expect(emptySelectorResponse.body.success).toBe(true);
+        expect(emptySelectorResponse.body.data?.html ?? "").toBe("");
       } finally {
         await localBrowserDeleteRaw(sessionId, identity);
       }
@@ -178,6 +220,59 @@ describe("Local browser sessions", () => {
       expect(response.statusCode).toBe(404);
       expect(response.body.success).toBe(false);
       expect(typeof response.body.error).toBe("string");
+    },
+    scrapeTimeout,
+  );
+
+  it("rejects selector when sessionId is not provided", async () => {
+    const response = await scrapeRaw(
+      {
+        url: "https://example.com",
+        selector: ".target-block",
+        formats: ["markdown"],
+      },
+      identity,
+    );
+
+    expect(response.statusCode).toBe(400);
+    expect(response.body.success).toBe(false);
+    expect(response.body.code).toBe("BAD_REQUEST");
+    expect(response.body.error).toContain("'selector' requires 'sessionId'.");
+  });
+
+  itIf(
+    !!config.PLAYWRIGHT_MICROSERVICE_URL && !!process.env.BROWSERBASE_API_KEY,
+  )(
+    "returns 400 for invalid selector with local browser session",
+    async () => {
+      const created = await localBrowserCreateRaw(
+        {
+          ttl: 120,
+          activityTtl: 60,
+        },
+        identity,
+      );
+      expect(created.statusCode).toBe(200);
+      expect(created.body.success).toBe(true);
+
+      const sessionId = created.body.id as string;
+      try {
+        const response = await scrapeRaw(
+          {
+            sessionId,
+            selector: "section>>>>>",
+            formats: ["markdown"],
+          },
+          identity,
+        );
+
+        expect(response.statusCode).toBe(400);
+        expect(response.body.success).toBe(false);
+        expect(typeof response.body.error).toBe("string");
+        expect(response.body.error.length).toBeGreaterThan(0);
+      } finally {
+        await localBrowserDeleteRaw(sessionId, identity);
+      }
     },
     scrapeTimeout,
   );

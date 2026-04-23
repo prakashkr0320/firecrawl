@@ -820,6 +820,7 @@ const scrapeRequestSchemaBase = baseScrapeOptions
   .extend({
     url: URL.optional(),
     sessionId: z.string().uuid().optional(),
+    selector: z.string().min(1).optional(),
     origin: z.string().optional().prefault("api"),
     integration: integrationSchema.optional().transform(val => val || null),
     zeroDataRetention: z.boolean().optional(),
@@ -835,6 +836,10 @@ const scrapeRequestSchemaBase = baseScrapeOptions
   .refine(obj => Boolean(obj.url || obj.sessionId), {
     error: "Either 'url' or 'sessionId' must be provided.",
     path: ["url"],
+  })
+  .refine(obj => !obj.selector || Boolean(obj.sessionId), {
+    error: "'selector' requires 'sessionId'.",
+    path: ["selector"],
   });
 
 export const scrapeRequestSchema = strictWithMessage(scrapeRequestSchemaBase)
@@ -853,6 +858,7 @@ export type ScrapeRequestInput = Omit<
 } & {
   url?: z.input<typeof URL>;
   sessionId?: string;
+  selector?: string;
   origin?: string;
   integration?: z.input<typeof integrationSchema> | null;
   zeroDataRetention?: boolean;

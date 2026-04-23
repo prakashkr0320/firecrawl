@@ -248,6 +248,7 @@ export async function scrapeController(
                         : false,
                       unnormalizedSourceURL: preNormalizedBody.url,
                       localBrowserSessionId: req.body.sessionId,
+                      localBrowserSelector: req.body.selector,
                       bypassBilling: isDirectToBullMQ || !shouldBill,
                       zeroDataRetention,
                       teamFlags: req.acuc?.flags ?? null,

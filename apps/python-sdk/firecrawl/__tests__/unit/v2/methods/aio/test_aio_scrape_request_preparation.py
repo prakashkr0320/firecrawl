@@ -54,6 +54,15 @@ class TestAsyncScrapeRequestPreparation:
         assert "url" not in payload
 
     @pytest.mark.asyncio
+    async def test_selector_is_serialized_when_provided(self):
+        payload = await _prepare_scrape_request(
+            session_id="session-123",
+            selector=".target-block",
+        )
+        assert payload["sessionId"] == "session-123"
+        assert payload["selector"] == ".target-block"
+
+    @pytest.mark.asyncio
     async def test_options_conversion(self):
         opts = ScrapeOptions(
             formats=["markdown", {"type": "screenshot", "full_page": True, "quality": 80}],

@@ -17,6 +17,7 @@ def _prepare_scrape_request(
     url: Optional[str] = None,
     options: Optional[ScrapeOptions] = None,
     session_id: Optional[str] = None,
+    selector: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Prepare a scrape request payload for v2 API.
@@ -25,6 +26,7 @@ def _prepare_scrape_request(
         url: URL to scrape
         options: ScrapeOptions (snake_case) to convert and include
         session_id: Existing browser session id to scrape without navigation
+        selector: Optional CSS selector to limit local browser session scraping (requires session_id)
         
     Returns:
         Request payload dictionary with camelCase fields
@@ -37,6 +39,8 @@ def _prepare_scrape_request(
         request_data["url"] = url.strip()
     if session_id:
         request_data["sessionId"] = session_id
+    if selector and selector.strip():
+        request_data["selector"] = selector.strip()
 
     if options is not None:
         validated = validate_scrape_options(options)
@@ -52,6 +56,7 @@ def scrape(
     url: Optional[str] = None,
     options: Optional[ScrapeOptions] = None,
     session_id: Optional[str] = None,
+    selector: Optional[str] = None,
 ) -> Document:
     """
     Scrape a single URL and return the document.
@@ -64,11 +69,17 @@ def scrape(
         url: URL to scrape
         options: Scraping options (snake_case)
         session_id: Existing browser session id to scrape without navigation
+        selector: Optional CSS selector to limit local browser session scraping (requires session_id)
         
     Returns:
         Document
     """
-    payload = _prepare_scrape_request(url, options, session_id=session_id)
+    payload = _prepare_scrape_request(
+        url,
+        options,
+        session_id=session_id,
+        selector=selector,
+    )
 
     response = client.post("/v2/scrape", payload)
 

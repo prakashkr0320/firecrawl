@@ -131,6 +131,14 @@ class TestScrapeRequestPreparation:
         assert data["sessionId"] == "session-123"
         assert "url" not in data
 
+    def test_selector_is_serialized_when_provided(self):
+        data = _prepare_scrape_request(
+            session_id="session-123",
+            selector=".target-block",
+        )
+        assert data["sessionId"] == "session-123"
+        assert data["selector"] == ".target-block"
+
     def test_all_params_including_integration(self):
         opts = ScrapeOptions(
             formats=["markdown"],

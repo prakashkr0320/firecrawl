@@ -91,6 +91,7 @@ class AsyncFirecrawlClient:
         url: Optional[str] = None,
         *,
         session_id: Optional[str] = None,
+        selector: Optional[str] = None,
         **kwargs,
     ):
         options = ScrapeOptions(**{k: v for k, v in kwargs.items() if v is not None}) if kwargs else None
@@ -99,6 +100,7 @@ class AsyncFirecrawlClient:
             url,
             options,
             session_id=session_id,
+            selector=selector,
         )
 
     async def interact(

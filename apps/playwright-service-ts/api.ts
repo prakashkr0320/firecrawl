@@ -741,6 +741,11 @@ app.post('/sessions', async (req: Request, res: Response) => {
 
 app.get('/sessions/:sessionId/snapshot', async (req: Request, res: Response) => {
   const sessionId = String(req.params.sessionId);
+  const selectorRaw = req.query.selector;
+  const selector =
+    typeof selectorRaw === "string" && selectorRaw.trim() !== ""
+      ? selectorRaw.trim()
+      : undefined;
   const session = localSessions.get(sessionId);
   if (!session) {
     return res.status(404).json({ error: 'Local browser session not found.' });
@@ -749,7 +754,20 @@ app.get('/sessions/:sessionId/snapshot', async (req: Request, res: Response) => 
   try {
     const page = await getPreferredSessionPage(session);
     touchLocalSession(session);
-    const html = await page.content();
+    let html = await page.content();
+    if (selector) {
+      try {
+        html = await page.evaluate((cssSelector: string) => {
+          const matches = [...document.querySelectorAll(cssSelector)];
+          return matches.map(node => node.outerHTML).join("\n");
+        }, selector);
+      } catch (error) {
+        return res.status(400).json({
+          error: error instanceof Error ? error.message : "Invalid selector.",
+        });
+      }
+    }
+
     const url = page.url();
     return res.status(200).json({
       sessionId: session.sessionId,

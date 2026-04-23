@@ -201,8 +201,18 @@ async def main():
         await page.goto("https://example.com")
         await page.click("text=More information")
 
+    # Uses a live session snapshot (current DOM) and bypasses URL cache/index.
     doc = client.scrape(session_id=session.id, formats=["markdown"])
     print(doc.markdown)
+
+    # Optional: scrape only selected subtree(s) from the live session snapshot.
+    # selector applies to local-browser session scrapes and requires session_id.
+    panel = client.scrape(
+        session_id=session.id,
+        selector="#details-panel, .target-block",
+        formats=["markdown"],
+    )
+    print(panel.markdown)
     client.delete_local_browser(session.id)
 
 asyncio.run(main())
