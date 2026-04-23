@@ -440,6 +440,8 @@ export type InternalOptions = {
   crawlId?: string;
   localBrowserSessionId?: string;
   localBrowserSelector?: string;
+  localBrowserSnapshot?: boolean;
+  localBrowserSnapshotSelectorScoped?: boolean;
 
   priority?: number; // Passed along to fire-engine
   forceEngine?: Engine | Engine[];
@@ -481,6 +483,17 @@ type EngineScrapeResultWithContext = {
 };
 
 const MAX_HTML_SIZE_FOR_MARKDOWN_CHECK = 300 * 1024; // 300KB
+
+function getMarkdownCheckScrapeOptions(meta: Meta): ScrapeOptions {
+  if (meta.internalOptions.localBrowserSnapshotSelectorScoped) {
+    return scrapeOptions.parse({
+      ...meta.options,
+      onlyMainContent: false,
+    });
+  }
+
+  return scrapeOptions.parse(meta.options);
+}
 
 async function scrapeURLLoopIter(
   meta: Meta,
@@ -531,21 +544,24 @@ async function scrapeURLLoopIter(
       checkMarkdown = engineResult.html?.trim() ?? "";
     } else {
       const requestId = meta.id || meta.internalOptions.crawlId;
+      const checkScrapeOptions = getMarkdownCheckScrapeOptions(meta);
       checkMarkdown = await parseMarkdown(
-        await htmlTransform(
-          engineResult.html,
-          meta.url,
-          scrapeOptions.parse({ onlyMainContent: true }),
-        ),
+        await htmlTransform(engineResult.html, meta.url, checkScrapeOptions),
         { logger: meta.logger, requestId },
       );
 
-      if (checkMarkdown.trim().length === 0) {
+      if (
+        !meta.internalOptions.localBrowserSnapshotSelectorScoped &&
+        checkMarkdown.trim().length === 0
+      ) {
         checkMarkdown = await parseMarkdown(
           await htmlTransform(
             engineResult.html,
             meta.url,
-            scrapeOptions.parse({ onlyMainContent: false }),
+            scrapeOptions.parse({
+              ...checkScrapeOptions,
+              onlyMainContent: false,
+            }),
           ),
           { logger: meta.logger, requestId },
         );

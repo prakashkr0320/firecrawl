@@ -167,6 +167,37 @@ describe("Local browser sessions", () => {
           "Outside-selector-content",
         );
 
+        const asideSelectorResponse = await scrapeRaw(
+          {
+            sessionId,
+            selector: "aside",
+            formats: ["markdown"],
+          },
+          identity,
+        );
+        expect(asideSelectorResponse.statusCode).toBe(200);
+        expect(asideSelectorResponse.body.success).toBe(true);
+        expect(asideSelectorResponse.body.data?.markdown).toContain(
+          "Outside-selector-content",
+        );
+        expect(asideSelectorResponse.body.data?.markdown).not.toContain(
+          "Target-marker-one",
+        );
+
+        const emptySelectorMarkdownResponse = await scrapeRaw(
+          {
+            sessionId,
+            selector: ".does-not-exist",
+            formats: ["markdown"],
+          },
+          identity,
+        );
+        expect(emptySelectorMarkdownResponse.statusCode).toBe(200);
+        expect(emptySelectorMarkdownResponse.body.success).toBe(true);
+        expect(emptySelectorMarkdownResponse.body.data?.markdown ?? "").toBe(
+          "",
+        );
+
         const emptySelectorResponse = await scrapeRaw(
           {
             sessionId,

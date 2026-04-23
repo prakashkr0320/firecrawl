@@ -65,15 +65,13 @@ async function runWebScraper({
   logger.info("runWebScraper called");
 
   if (internalOptions?.localBrowserSessionId) {
+    const localBrowserSelector = internalOptions.localBrowserSelector?.trim();
     const snapshotPath = new URL(
       `/sessions/${encodeURIComponent(internalOptions.localBrowserSessionId)}/snapshot`,
       "http://local-browser",
     );
-    if (internalOptions.localBrowserSelector) {
-      snapshotPath.searchParams.set(
-        "selector",
-        internalOptions.localBrowserSelector,
-      );
+    if (localBrowserSelector) {
+      snapshotPath.searchParams.set("selector", localBrowserSelector);
     }
 
     const snapshot =
@@ -97,8 +95,11 @@ async function runWebScraper({
       {
         priority,
         ...internalOptions,
+        forceEngine: "fetch",
         urlInvisibleInCurrentCrawl,
         teamId: internalOptions?.teamId ?? team_id,
+        localBrowserSnapshot: true,
+        localBrowserSnapshotSelectorScoped: Boolean(localBrowserSelector),
         uploadedFile: {
           buffer: Buffer.from(snapshot.html, "utf8"),
           filename: "session-snapshot.html",

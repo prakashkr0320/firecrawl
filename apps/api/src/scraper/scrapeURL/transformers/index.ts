@@ -1,6 +1,6 @@
 import { parseMarkdown } from "../../../lib/html-to-markdown";
 import { Meta } from "..";
-import { Document } from "../../../controllers/v2/types";
+import { Document, ScrapeOptions } from "../../../controllers/v2/types";
 import { htmlTransform } from "../lib/removeUnwantedElements";
 import { extractLinks } from "../lib/extractLinks";
 import { extractImages } from "../lib/extractImages";
@@ -30,6 +30,17 @@ type Transformer = (
   meta: Meta,
   document: Document,
 ) => Document | Promise<Document>;
+
+function getHtmlTransformScrapeOptions(meta: Meta): ScrapeOptions {
+  if (meta.internalOptions.localBrowserSnapshotSelectorScoped) {
+    return {
+      ...meta.options,
+      onlyMainContent: false,
+    };
+  }
+
+  return meta.options;
+}
 
 async function deriveMetadataFromRawHTML(
   meta: Meta,
@@ -64,7 +75,7 @@ async function deriveHTMLFromRawHTML(
       document.metadata.sourceURL ??
       meta.rewrittenUrl ??
       meta.url,
-    meta.options,
+    getHtmlTransformScrapeOptions(meta),
   );
   return document;
 }
@@ -132,6 +143,7 @@ async function deriveMarkdownFromHTML(
 
   if (
     meta.options.onlyMainContent === true &&
+    !meta.internalOptions.localBrowserSnapshotSelectorScoped &&
     (!document.markdown || document.markdown.trim().length === 0)
   ) {
     meta.logger.info(
