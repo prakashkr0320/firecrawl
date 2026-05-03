@@ -27,9 +27,17 @@ const MAX_ACTIVE_LOCAL_SESSIONS = Math.max(
   Number.parseInt(process.env.MAX_ACTIVE_LOCAL_SESSIONS ?? '25', 10) || 25,
 );
 
+const normalizeOptionalEnv = (value: string | undefined): string | undefined => {
+  const normalized = value?.trim();
+  return normalized ? normalized : undefined;
+};
+
 const PROXY_SERVER = process.env.PROXY_SERVER || null;
 const PROXY_USERNAME = process.env.PROXY_USERNAME || null;
 const PROXY_PASSWORD = process.env.PROXY_PASSWORD || null;
+const CUSTOM_PROXY_URL = normalizeOptionalEnv(process.env.CUSTOM_PROXY_URL);
+const CUSTOM_PROXY_USER = normalizeOptionalEnv(process.env.CUSTOM_PROXY_USER);
+const CUSTOM_PROXY_PASSWORD = normalizeOptionalEnv(process.env.CUSTOM_PROXY_PASSWORD);
 const normalizeStealthLocale = (value: string | undefined): string => {
   const normalized = (value ?? 'en-US').trim().replace(/_/g, '-');
   if (!normalized) return 'en-US';
@@ -482,6 +490,33 @@ const parseSessionTiming = (value: unknown, fallbackMs: number, minSeconds: numb
   return Math.floor(bounded * 1000);
 };
 
+const buildBrowserbaseProxyConfig = ():
+  | Array<{ type: 'external'; server: string; username: string; password: string }>
+  | undefined => {
+  if (CUSTOM_PROXY_URL && CUSTOM_PROXY_USER && CUSTOM_PROXY_PASSWORD) {
+    return [{
+      type: 'external',
+      server: CUSTOM_PROXY_URL,
+      username: CUSTOM_PROXY_USER,
+      password: CUSTOM_PROXY_PASSWORD,
+    }];
+  }
+
+  const hasAnyProxyValue = CUSTOM_PROXY_URL || CUSTOM_PROXY_USER || CUSTOM_PROXY_PASSWORD;
+  if (hasAnyProxyValue) {
+    const missingVars = [
+      !CUSTOM_PROXY_URL ? 'CUSTOM_PROXY_URL' : null,
+      !CUSTOM_PROXY_USER ? 'CUSTOM_PROXY_USER' : null,
+      !CUSTOM_PROXY_PASSWORD ? 'CUSTOM_PROXY_PASSWORD' : null,
+    ].filter((name): name is string => Boolean(name));
+    console.warn(
+      `Ignoring partial Browserbase proxy configuration. Missing required env vars: ${missingVars.join(', ')}`,
+    );
+  }
+
+  return undefined;
+};
+
 const getPreferredSessionPage = async (session: LocalBrowserSession): Promise<Page> => {
   const pages = session.context.pages();
   if (pages.length === 0) {
@@ -591,9 +626,11 @@ const createLocalSession = async (
     ensureStealthPlugin();
     const ttlMs = parseSessionTiming(ttlSeconds, 600_000, 30, 3600);
     const activityTtlMs = parseSessionTiming(activityTtlSeconds, 300_000, 10, 3600);
+    const browserbaseProxies = buildBrowserbaseProxyConfig();
     const browserbaseSession = await getBrowserbaseClient().sessions.create({
       timeout: Math.floor(ttlMs / 1000),
       projectId: BROWSERBASE_PROJECT_ID,
+      ...(browserbaseProxies ? { proxies: browserbaseProxies } : {}),
     });
     browserbaseSessionId = browserbaseSession.id;
     const cdpUrl = browserbaseSession.connectUrl;

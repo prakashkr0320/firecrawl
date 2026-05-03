@@ -68,8 +68,13 @@ For local browser sessions (`POST /v2/local-browser`), this service now requires
 
 - `BROWSERBASE_API_KEY` (required)
 - `BROWSERBASE_PROJECT_ID` (optional)
+- `CUSTOM_PROXY_URL` (optional)
+- `CUSTOM_PROXY_USER` (optional)
+- `CUSTOM_PROXY_PASSWORD` (optional)
 
 In production deployments, inject `BROWSERBASE_API_KEY` from a secret manager or Kubernetes Secret. Do not place Browserbase API keys in ConfigMaps or committed values files.
+
+When all `CUSTOM_PROXY_*` variables are set, local Browserbase sessions are created with an external proxy configuration. If only some `CUSTOM_PROXY_*` values are provided, proxy settings are ignored and the session is created without a proxy.
 
 ## LOCAL BROWSER SESSIONS
 
