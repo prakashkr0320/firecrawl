@@ -13,6 +13,11 @@ import { getError } from './helpers/get_error';
 import { lookup } from 'dns/promises';
 import IPAddr from 'ipaddr.js';
 import { Server, RequestError } from 'proxy-chain';
+import {
+  captureCdpSnapshot,
+  CdpSnapshotError,
+  CdpSnapshotRequest,
+} from './cdp_snapshot';
 
 dotenv.config();
 
@@ -365,6 +370,77 @@ app.get('/health', async (req: Request, res: Response) => {
     res.status(503).json({
       status: 'unhealthy',
       error: error instanceof Error ? error.message : 'Unknown error occurred',
+    });
+  }
+});
+
+// CDP snapshot attaches to a remote browser via connectOverCDP and does not
+// use the local Chromium launched by initializeBrowser. start() still requires
+// local browser init for /scrape and /health; this route itself is independent.
+app.post('/cdp-snapshot', async (req: Request, res: Response) => {
+  const {
+    cdpUrl,
+    targetId,
+    selector,
+    allowMultipleSelectors = false,
+    timeoutMs,
+  }: CdpSnapshotRequest = req.body;
+
+  console.log(`================= CDP Snapshot Request =================`);
+  console.log(`CDP URL: ${cdpUrl}`);
+  console.log(`Target ID: ${targetId}`);
+  console.log(`Selector: ${selector ? selector : 'None'}`);
+  console.log(`Allow Multiple Selectors: ${allowMultipleSelectors}`);
+  console.log(`Timeout Ms: ${timeoutMs}`);
+  console.log(`========================================================`);
+
+  if (!cdpUrl || typeof cdpUrl !== 'string') {
+    return res
+      .status(400)
+      .json({ error: 'cdpUrl is required', code: 'CDP_CONNECT_FAILED' });
+  }
+
+  if (!targetId || typeof targetId !== 'string') {
+    return res
+      .status(400)
+      .json({ error: 'targetId is required', code: 'TARGET_NOT_FOUND' });
+  }
+
+  if (
+    typeof timeoutMs !== 'number' ||
+    !Number.isFinite(timeoutMs) ||
+    timeoutMs <= 0
+  ) {
+    return res.status(400).json({
+      error: 'timeoutMs must be a positive number',
+      code: 'SNAPSHOT_TIMEOUT',
+    });
+  }
+
+  try {
+    const result = await captureCdpSnapshot({
+      cdpUrl,
+      targetId,
+      selector,
+      allowMultipleSelectors: Boolean(allowMultipleSelectors),
+      timeoutMs,
+    });
+    console.log(`✅ CDP snapshot successful!`);
+    return res.status(200).json(result);
+  } catch (error) {
+    if (error instanceof CdpSnapshotError) {
+      console.error(`CDP snapshot error [${error.code}]:`, error.message);
+      return res
+        .status(error.status)
+        .json({ error: error.message, code: error.code });
+    }
+    console.error('CDP snapshot unexpected error:', error);
+    return res.status(500).json({
+      error:
+        error instanceof Error
+          ? error.message
+          : 'An unexpected error occurred during CDP snapshot',
+      code: 'CDP_CONNECT_FAILED',
     });
   }
 });
