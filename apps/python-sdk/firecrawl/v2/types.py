@@ -1403,6 +1403,37 @@ class BrowserDeleteResponse(BaseModel):
     error: Optional[str] = None
 
 
+class CdpScrapeTimings(BaseModel):
+    """Timing metadata for a CDP scrape."""
+
+    model_config = {"populate_by_name": True}
+
+    queue_wait_ms: int = Field(alias="queueWaitMs")
+    snapshot_ms: int = Field(alias="snapshotMs")
+    convert_ms: int = Field(alias="convertMs")
+    total_ms: int = Field(alias="totalMs")
+
+
+class CdpScrapeMetadata(BaseModel):
+    """Metadata for a CDP scrape response."""
+
+    model_config = {"populate_by_name": True}
+
+    url: str
+    title: Optional[str] = None
+    timings: CdpScrapeTimings
+
+
+class CdpScrapeResponse(BaseModel):
+    """Response from scraping a CDP browser session."""
+
+    model_config = {"populate_by_name": True}
+
+    markdown: Optional[str] = None
+    html: Optional[str] = None
+    metadata: CdpScrapeMetadata
+
+
 class BrowserSession(BaseModel):
     """Information about a browser session."""
 

@@ -1,5 +1,7 @@
 # Firecrawl Python SDK
 
+> **Fork note:** This fork primarily supports `scrape_cdp` for scraping content from a client-owned Chrome DevTools Protocol (CDP) session. Other SDK methods remain available but are not the focus of this fork.
+
 The Firecrawl Python SDK is a library that lets you easily search, scrape, and interact with the web for AI agents — returning clean Markdown or structured data your agents can ship with. It provides a simple and intuitive interface for the Firecrawl API.
 
 ## Installation

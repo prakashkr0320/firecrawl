@@ -51,10 +51,12 @@ from .types import (
     MonitorSchedule,
     MonitorTarget,
     MonitorUpdateRequest,
+    CdpScrapeResponse,
 )
 from .utils.http_client import HttpClient
 from .utils.error_handler import FirecrawlError
 from .methods import scrape as scrape_module
+from .methods import scrape_cdp as scrape_cdp_module
 from .methods import parse as parse_module
 from .methods import crawl as crawl_module  
 from .methods import batch as batch_module
@@ -220,6 +222,43 @@ class FirecrawlClient:
             ).items() if v is not None}
         ) if any(v is not None for v in [formats, headers, include_tags, exclude_tags, only_main_content, timeout, wait_for, mobile, parsers, actions, location, skip_tls_verification, remove_base64_images, fast_mode, use_mock, block_ads, proxy, max_age, store_in_cache, lockdown, threat_protection, profile, integration]) else None
         return scrape_module.scrape(self.http_client, url, options)
+
+    def scrape_cdp(
+        self,
+        cdp_url: str,
+        target_id: str,
+        *,
+        selector: Optional[str] = None,
+        allow_multiple_selectors: bool = False,
+        timeout: Optional[int] = None,
+        formats: Optional[List[Literal["markdown", "html"]]] = None,
+        only_main_content: Optional[bool] = None,
+    ) -> CdpScrapeResponse:
+        """
+        Scrape content from a client-owned CDP browser session.
+
+        Args:
+            cdp_url: WebSocket URL of the remote CDP session
+            target_id: CDP target to attach to
+            selector: Optional CSS selector to scope extraction
+            allow_multiple_selectors: Whether selector may match multiple elements
+            timeout: Request timeout in milliseconds
+            formats: Output formats to include (markdown and/or html)
+            only_main_content: Whether to extract only main content
+
+        Returns:
+            CdpScrapeResponse with requested format fields and metadata
+        """
+        return scrape_cdp_module.scrape_cdp(
+            self.http_client,
+            cdp_url,
+            target_id,
+            selector=selector,
+            allow_multiple_selectors=allow_multiple_selectors,
+            timeout=timeout,
+            formats=formats,
+            only_main_content=only_main_content,
+        )
 
     def search_papers(self, query: str, **kwargs):
         return research_module.search_papers(self.http_client, query, **kwargs)

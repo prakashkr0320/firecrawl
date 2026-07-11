@@ -46,11 +46,13 @@ from .types import (
     MonitorSchedule,
     MonitorTarget,
     MonitorUpdateRequest,
+    CdpScrapeResponse,
 )
 from .utils.http_client import HttpClient
 from .utils.http_client_async import AsyncHttpClient
 
 from .methods.aio import scrape as async_scrape  # type: ignore[attr-defined]
+from .methods.aio import scrape_cdp as async_scrape_cdp  # type: ignore[attr-defined]
 from .methods.aio import parse as async_parse  # type: ignore[attr-defined]
 from .methods.aio import batch as async_batch  # type: ignore[attr-defined]
 from .methods.aio import crawl as async_crawl  # type: ignore[attr-defined]
@@ -106,6 +108,28 @@ class AsyncFirecrawlClient:
     ):
         options = ScrapeOptions(**{k: v for k, v in kwargs.items() if v is not None}) if kwargs else None
         return await async_scrape.scrape(self.async_http_client, url, options)
+
+    async def scrape_cdp(
+        self,
+        cdp_url: str,
+        target_id: str,
+        *,
+        selector: Optional[str] = None,
+        allow_multiple_selectors: bool = False,
+        timeout: Optional[int] = None,
+        formats: Optional[List[Literal["markdown", "html"]]] = None,
+        only_main_content: Optional[bool] = None,
+    ) -> CdpScrapeResponse:
+        return await async_scrape_cdp.scrape_cdp(
+            self.async_http_client,
+            cdp_url,
+            target_id,
+            selector=selector,
+            allow_multiple_selectors=allow_multiple_selectors,
+            timeout=timeout,
+            formats=formats,
+            only_main_content=only_main_content,
+        )
 
     async def search_papers(self, query: str, **kwargs):
         return await async_research.search_papers(self.async_http_client, query, **kwargs)

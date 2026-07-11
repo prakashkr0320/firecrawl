@@ -20,6 +20,9 @@ from .v2.types import (
     ScrapeData,
     ScrapeResponse,
     ThreatProtectionOptions,
+    CdpScrapeTimings,
+    CdpScrapeMetadata,
+    CdpScrapeResponse,
     
     # Crawl types
     CrawlRequest,
@@ -104,6 +107,9 @@ __all__ = [
     'ScrapeData',
     'ScrapeResponse',
     'ThreatProtectionOptions',
+    'CdpScrapeTimings',
+    'CdpScrapeMetadata',
+    'CdpScrapeResponse',
     
     # Crawl types
     'CrawlRequest',
