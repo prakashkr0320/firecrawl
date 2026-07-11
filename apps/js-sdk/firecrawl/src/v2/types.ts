@@ -1507,3 +1507,33 @@ export interface SearchGithubOptions {
   /** Number of results to return (1–100, default 20). */
   k?: number;
 }
+
+/** Options for `scrapeCdp`. */
+export interface CdpScrapeOptions {
+  cdpUrl: string;
+  targetId: string;
+  selector?: string;
+  allowMultipleSelectors?: boolean;
+  timeout?: number;
+  formats?: Array<"markdown" | "html">;
+  onlyMainContent?: boolean;
+}
+
+export interface CdpScrapeTimings {
+  queueWaitMs: number;
+  snapshotMs: number;
+  convertMs: number;
+  totalMs: number;
+}
+
+export interface CdpScrapeMetadata {
+  url: string;
+  title?: string;
+  timings: CdpScrapeTimings;
+}
+
+export interface CdpScrapeResponse {
+  markdown?: string;
+  html?: string;
+  metadata: CdpScrapeMetadata;
+}

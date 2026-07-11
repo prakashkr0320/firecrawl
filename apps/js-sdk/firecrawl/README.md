@@ -1,5 +1,7 @@
 # Firecrawl Node SDK
 
+> **Fork note:** This fork primarily supports `scrapeCdp` for scraping pages via an existing CDP browser connection. Other SDK methods are retained for compatibility but may not be fully supported on this deployment.
+
 The Firecrawl Node SDK is a library that lets you easily search, scrape, and interact with the web for AI agents — returning clean Markdown or structured data your agents can ship with. It provides a simple and intuitive interface for the Firecrawl API.
 
 ## Installation

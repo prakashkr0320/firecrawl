@@ -4,6 +4,7 @@ import {
   interact as interactMethod,
   stopInteraction as stopInteractionMethod,
 } from "./methods/scrape";
+import { scrapeCdp as scrapeCdpMethod } from "./methods/scrapeCdp";
 import { parse as parseMethod } from "./methods/parse";
 import { search } from "./methods/search";
 import { map as mapMethod } from "./methods/map";
@@ -75,6 +76,8 @@ import type {
   ScrapeExecuteRequest,
   ScrapeExecuteResponse,
   ScrapeBrowserDeleteResponse,
+  CdpScrapeOptions,
+  CdpScrapeResponse,
   CreateMonitorRequest,
   ListMonitorChecksOptions,
   ListMonitorsOptions,
@@ -168,6 +171,14 @@ export class FirecrawlClient {
   async scrape(url: string, options?: ScrapeOptions): Promise<Document>;
   async scrape(url: string, options?: ScrapeOptions): Promise<Document> {
     return scrape(this.http, url, options);
+  }
+  /**
+   * Scrape a page via an existing CDP browser connection.
+   * @param options CDP URL, target id, and optional scrape options.
+   * @returns Scraped content and metadata (no success envelope).
+   */
+  async scrapeCdp(options: CdpScrapeOptions): Promise<CdpScrapeResponse> {
+    return scrapeCdpMethod(this.http, options);
   }
   /**
    * Interact with the browser session associated with a scrape job.
