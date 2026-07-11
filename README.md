@@ -49,6 +49,8 @@ _Pst. Hey, you, join our stargazers :)_
 
 ---
 
+> **Personal fork:** This tree is a slim, personal-use fork that scrapes HTML from a client-owned remote CDP session (`POST /v2/cdp-browser-scrape` / `scrape_cdp` / `scrapeCdp`) and returns markdown and/or cleaned HTML. Runtime is three services only (`api`, `playwright-service`, `go-html-to-md`). See **[FORK.md](./FORK.md)** for env vars, API contract, merge policy, and how to run. Tests: `cd apps/api && pnpm test:fork`.
+
 ## Why Firecrawl?
 
 - **Industry-leading reliability**: Covers 96% of the web, including JS-heavy pages — no proxy headaches, just clean data ([see benchmarks](https://www.firecrawl.dev/blog/the-worlds-best-web-data-api-v25))
