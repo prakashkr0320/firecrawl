@@ -16,15 +16,11 @@ const (
 )
 
 // Handler manages HTTP request handling
-type Handler struct {
-	converter *Converter
-}
+type Handler struct{}
 
 // NewHandler creates a new Handler instance
-func NewHandler(converter *Converter) *Handler {
-	return &Handler{
-		converter: converter,
-	}
+func NewHandler() *Handler {
+	return &Handler{}
 }
 
 // RegisterRoutes registers all HTTP routes
@@ -137,8 +133,8 @@ func (h *Handler) ConvertHTML(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Convert HTML to Markdown
-	markdown, err := h.converter.ConvertHTMLToMarkdown(req.HTML)
+	// Convert HTML to Markdown using a per-request converter for thread-safety
+	markdown, err := NewConverter().ConvertHTMLToMarkdown(req.HTML)
 	if err != nil {
 		logger.Error().Err(err).Msg("Failed to convert HTML to Markdown")
 		h.sendError(w, "Failed to convert HTML to Markdown", err.Error(), http.StatusInternalServerError)

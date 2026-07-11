@@ -13,8 +13,7 @@ import (
 )
 
 func TestHealthCheck(t *testing.T) {
-	converter := NewConverter()
-	handler := NewHandler(converter)
+	handler := NewHandler()
 
 	router := mux.NewRouter()
 	handler.RegisterRoutes(router)
@@ -49,8 +48,7 @@ func TestHealthCheck(t *testing.T) {
 }
 
 func TestIndex(t *testing.T) {
-	converter := NewConverter()
-	handler := NewHandler(converter)
+	handler := NewHandler()
 
 	router := mux.NewRouter()
 	handler.RegisterRoutes(router)
@@ -83,8 +81,7 @@ func TestIndex(t *testing.T) {
 }
 
 func TestConvertHTML_Success(t *testing.T) {
-	converter := NewConverter()
-	handler := NewHandler(converter)
+	handler := NewHandler()
 
 	router := mux.NewRouter()
 	handler.RegisterRoutes(router)
@@ -166,8 +163,7 @@ func TestConvertHTML_Success(t *testing.T) {
 }
 
 func TestConvertHTML_EmptyHTML(t *testing.T) {
-	converter := NewConverter()
-	handler := NewHandler(converter)
+	handler := NewHandler()
 
 	router := mux.NewRouter()
 	handler.RegisterRoutes(router)
@@ -202,8 +198,7 @@ func TestConvertHTML_EmptyHTML(t *testing.T) {
 }
 
 func TestConvertHTML_InvalidJSON(t *testing.T) {
-	converter := NewConverter()
-	handler := NewHandler(converter)
+	handler := NewHandler()
 
 	router := mux.NewRouter()
 	handler.RegisterRoutes(router)
@@ -262,8 +257,7 @@ func contains(s, substr string) bool {
 }
 
 func TestConvertHTML_ZeroDataRetention_SuppressesLogs(t *testing.T) {
-	converter := NewConverter()
-	handler := NewHandler(converter)
+	handler := NewHandler()
 
 	router := mux.NewRouter()
 	handler.RegisterRoutes(router)
@@ -301,8 +295,7 @@ func TestConvertHTML_ZeroDataRetention_SuppressesLogs(t *testing.T) {
 }
 
 func TestConvertHTML_NonZDR_LogsRequestID(t *testing.T) {
-	converter := NewConverter()
-	handler := NewHandler(converter)
+	handler := NewHandler()
 
 	router := mux.NewRouter()
 	handler.RegisterRoutes(router)

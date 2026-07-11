@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -16,10 +17,21 @@ import (
 const (
 	defaultPort            = "8080"
 	defaultShutdownTimeout = 30 * time.Second
-	defaultReadTimeout     = 1 * time.Minute
-	defaultWriteTimeout    = 1 * time.Minute
+	defaultTimeoutMs       = 300000 // 5 minutes
 	maxUploadSize          = 150 * 1024 * 1024
 )
+
+func requestTimeout() time.Duration {
+	raw := os.Getenv("REQUEST_TIMEOUT_MS")
+	if raw == "" {
+		return time.Duration(defaultTimeoutMs) * time.Millisecond
+	}
+	ms, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || ms <= 0 {
+		return time.Duration(defaultTimeoutMs) * time.Millisecond
+	}
+	return time.Duration(ms) * time.Millisecond
+}
 
 func main() {
 	// Configure logging.
@@ -47,11 +59,10 @@ func main() {
 		port = defaultPort
 	}
 
-	// Initialize converter
-	converter := NewConverter()
+	timeout := requestTimeout()
 
-	// Initialize handlers
-	handler := NewHandler(converter)
+	// Initialize handlers (converter is created per-request for thread-safety)
+	handler := NewHandler()
 
 	// Setup router
 	router := mux.NewRouter()
@@ -69,8 +80,8 @@ func main() {
 	srv := &http.Server{
 		Addr:         ":" + port,
 		Handler:      router,
-		ReadTimeout:  defaultReadTimeout,
-		WriteTimeout: defaultWriteTimeout,
+		ReadTimeout:  timeout,
+		WriteTimeout: timeout,
 	}
 
 	// Start server in goroutine
@@ -78,6 +89,7 @@ func main() {
 		log.Info().
 			Str("port", port).
 			Str("env", env).
+			Dur("request_timeout", timeout).
 			Msg("Starting HTML to Markdown service")
 
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
