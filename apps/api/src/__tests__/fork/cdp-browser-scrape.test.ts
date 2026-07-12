@@ -1,7 +1,15 @@
 import type { Express } from "express";
 import type { Server } from "node:http";
 import request from "supertest";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import {
   SAMPLE_HTML,
   SAMPLE_MARKDOWN,
@@ -55,7 +63,7 @@ describe("fork CDP API", () => {
 
     // forkConfig / scrapeSemaphore are fixed at import — set env first.
     vi.resetModules();
-    const fork = await import("../../fork/index");
+    const fork = await import("../../fork/index.js");
     // Env was set before import; reload keeps config object in sync for clarity.
     fork.reloadForkConfig();
     app = fork.createApp();
@@ -112,6 +120,16 @@ describe("fork CDP API", () => {
         convertMs: expect.any(Number),
         totalMs: expect.any(Number),
       });
+    });
+
+    it("accepts SDK origin field", async () => {
+      const res = await request(app)
+        .post("/v2/cdp-browser-scrape")
+        .set(authHeader())
+        .send({ ...baseBody, origin: "python-sdk@2.0.0" });
+
+      expect(res.status).toBe(200);
+      expect(res.body.markdown).toBe(SAMPLE_MARKDOWN);
     });
 
     it("selector scrape succeeds with markdown", async () => {

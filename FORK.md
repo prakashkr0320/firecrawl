@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This repository is a personal-use fork of Firecrawl focused on a single workflow: scraping HTML from a client-owned remote Chrome DevTools Protocol (CDP) session and returning markdown and/or cleaned HTML. The client already owns the browser (e.g. Playwright + Browserbase); Firecrawl connects over CDP, snapshots HTML, optionally cleans it, and converts to markdown. It is not intended to be merged back upstream as a product feature.
+This repository is a personal-use fork of Firecrawl focused on a single workflow: scraping HTML from a client-owned remote Chrome DevTools Protocol (CDP) session and returning markdown and/or cleaned HTML. The client already owns the browser (e.g. Playwright + Browserbase); Firecrawl connects over CDP, snapshots HTML, optionally cleans it, and converts to markdown. Firecrawl does **not** disconnect the CDP WebSocket after the snapshot (`browser.close()` would drop it and many remote providers end the session on disconnect)—the client must close the remote browser/session. It is not intended to be merged back upstream as a product feature.
 
 ## Runtime
 
@@ -55,6 +55,7 @@ See also `.env.example`.
 | `onlyMainContent` | Default `true`; **forced `false` when `selector` is set** |
 | `selector` | 0 matches → error; >1 without `allowMultipleSelectors` → error; >1 with flag → join `outerHTML` |
 | `timeout` | ms; default `REQUEST_TIMEOUT_MS`; ceiling for the whole handler (queue wait + snapshot + convert) |
+| `origin` | Optional; ignored. Sent automatically by Python/JS SDKs on every POST |
 
 **Success (`200`)** — no `success` field:
 
@@ -90,7 +91,7 @@ SDKs throw on non-2xx (propagate server `error` message). Other SDK methods rema
 
 ### Playwright service
 
-`POST /cdp-snapshot` — request `{ cdpUrl, targetId, selector?, allowMultipleSelectors?, timeoutMs }` → `{ url, title?, html }` (raw snapshot HTML). Connect per request via `connectOverCDP`; no session store.
+`POST /cdp-snapshot` — request `{ cdpUrl, targetId, selector?, allowMultipleSelectors?, timeoutMs }` → `{ url, title?, html }` (raw snapshot HTML). Connect per request via `connectOverCDP`; no session store. Does **not** call `browser.close()` afterward—leaving the CDP socket open keeps provider sessions alive when disconnect would destroy them. The client closes the remote session; playwright-service may hold an open CDP socket until then (bounded in practice by client close and `MAX_CONCURRENT_SCRAPES`).
 
 ## Kept paths
 

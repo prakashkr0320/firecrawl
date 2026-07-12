@@ -147,7 +147,10 @@ const captureHtml = async (
 
 /**
  * Connect over CDP, resolve the page by targetId, and capture raw HTML.
- * Always disconnects the CDP browser connection in finally.
+ *
+ * Intentionally does not call browser.close(): for connectOverCDP that drops
+ * the CDP WebSocket, and many remote providers end the session on disconnect.
+ * The client owns the remote browser lifecycle and must close the session.
  */
 export const captureCdpSnapshot = async (
   req: CdpSnapshotRequest,
@@ -161,87 +164,81 @@ export const captureCdpSnapshot = async (
   } = req;
 
   const deadline = Date.now() + timeoutMs;
-  let browser: Browser | null = null;
+  let browser: Browser;
 
   try {
-    try {
-      browser = await chromium.connectOverCDP(cdpUrl, {
-        timeout: timeoutMs,
-      });
-    } catch (error) {
-      if (
-        error instanceof Error &&
-        (error.message.toLowerCase().includes('timeout') ||
-          error.name === 'TimeoutError')
-      ) {
-        throw new CdpSnapshotError(
-          'SNAPSHOT_TIMEOUT',
-          'Timed out connecting over CDP',
-          504,
-        );
-      }
+    browser = await chromium.connectOverCDP(cdpUrl, {
+      timeout: timeoutMs,
+    });
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      (error.message.toLowerCase().includes('timeout') ||
+        error.name === 'TimeoutError')
+    ) {
       throw new CdpSnapshotError(
-        'CDP_CONNECT_FAILED',
-        error instanceof Error
-          ? error.message
-          : 'Failed to connect over CDP',
-        502,
+        'SNAPSHOT_TIMEOUT',
+        'Timed out connecting over CDP',
+        504,
       );
     }
+    throw new CdpSnapshotError(
+      'CDP_CONNECT_FAILED',
+      error instanceof Error
+        ? error.message
+        : 'Failed to connect over CDP',
+      502,
+    );
+  }
 
-    assertWithinBudget(deadline);
+  assertWithinBudget(deadline);
 
-    const page = await findPageByTargetId(browser, targetId);
-    if (!page) {
-      throw new CdpSnapshotError(
-        'TARGET_NOT_FOUND',
-        `No page found for targetId: ${targetId}`,
-        404,
-      );
-    }
+  const page = await findPageByTargetId(browser, targetId);
+  if (!page) {
+    throw new CdpSnapshotError(
+      'TARGET_NOT_FOUND',
+      `No page found for targetId: ${targetId}`,
+      404,
+    );
+  }
 
-    assertWithinBudget(deadline);
+  assertWithinBudget(deadline);
 
-    // Race snapshot work against remaining budget.
-    const budget = remainingMs(deadline);
-    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  // Race snapshot work against remaining budget.
+  const budget = remainingMs(deadline);
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const html = await Promise.race([
+      captureHtml(page, selector, allowMultipleSelectors),
+      new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          reject(
+            new CdpSnapshotError(
+              'SNAPSHOT_TIMEOUT',
+              'CDP snapshot timed out',
+              504,
+            ),
+          );
+        }, budget);
+      }),
+    ]);
+
+    const url = page.url();
+    let title: string | undefined;
     try {
-      const html = await Promise.race([
-        captureHtml(page, selector, allowMultipleSelectors),
-        new Promise<never>((_, reject) => {
-          timeoutId = setTimeout(() => {
-            reject(
-              new CdpSnapshotError(
-                'SNAPSHOT_TIMEOUT',
-                'CDP snapshot timed out',
-                504,
-              ),
-            );
-          }, budget);
-        }),
-      ]);
-
-      const url = page.url();
-      let title: string | undefined;
-      try {
-        title = await page.title();
-      } catch {
-        title = undefined;
-      }
-
-      const result: CdpSnapshotSuccess = { url, html };
-      if (title !== undefined) {
-        result.title = title;
-      }
-      return result;
-    } finally {
-      if (timeoutId !== undefined) {
-        clearTimeout(timeoutId);
-      }
+      title = await page.title();
+    } catch {
+      title = undefined;
     }
+
+    const result: CdpSnapshotSuccess = { url, html };
+    if (title !== undefined) {
+      result.title = title;
+    }
+    return result;
   } finally {
-    if (browser) {
-      await browser.close().catch(() => {});
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
     }
   }
 };

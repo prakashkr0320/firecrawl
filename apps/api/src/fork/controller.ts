@@ -26,6 +26,8 @@ const requestBodySchema = z
       .optional()
       .default(["markdown"]),
     onlyMainContent: z.boolean().optional().default(true),
+    // SDKs inject this on every POST; ignored by the fork.
+    origin: z.string().optional(),
   })
   .strict();
 

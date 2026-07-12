@@ -52,7 +52,7 @@ describe("fork CDP QUEUE_TIMEOUT", () => {
     process.env.REQUEST_TIMEOUT_MS = "30000";
 
     vi.resetModules();
-    const fork = await import("../../fork/index");
+    const fork = await import("../../fork/index.js");
     fork.reloadForkConfig();
     // Belt-and-suspenders: semaphore size must be 1 for this suite.
     fork.resetScrapeSemaphoreForTests(1);
